@@ -8,7 +8,7 @@ public:
 
     enum class Type
     {
-        Off = 0,
+        Off,
         Telephone,
         Radio,
         Megaphone,
@@ -18,8 +18,8 @@ public:
         Dark,
         Bright,
         Distorted,
-        Dream,
-        Wide
+        Wide,
+        Dream
     };
 
     CreativeFXProcessor();
@@ -34,10 +34,12 @@ public:
 
     void processBlock(
         juce::AudioBuffer<float>& buffer,
-        int type,
+        Type type,
         float amount,
         float mix
     );
+
+    
 
 private:
 

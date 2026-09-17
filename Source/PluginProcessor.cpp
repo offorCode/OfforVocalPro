@@ -1096,6 +1096,46 @@ processBlock(
     }
 
 
+    // ==========================================================
+    // INPUT LEVEL METER
+    // ==========================================================
+    //
+    // Measure the incoming signal BEFORE the plugin's INPUT
+    // gain so the meter represents the actual signal entering
+    // Offor Vocal Pro.
+    //
+    // IMPORTANT:
+    // This uses a different variable name from the INPUT
+    // parameter called "inputDb" below.
+    //
+
+    float inputPeak = 0.0f;
+
+    for (int channel = 0;
+        channel < buffer.getNumChannels();
+        ++channel)
+    {
+        inputPeak =
+            juce::jmax(
+                inputPeak,
+                buffer.getMagnitude(
+                    channel,
+                    0,
+                    buffer.getNumSamples()));
+    }
+
+    const float inputMeterDb =
+        inputPeak > 0.000001f
+            ? juce::Decibels::gainToDecibels(inputPeak)
+            : -60.0f;
+
+    inputLevelDb.store(
+        juce::jlimit(
+            -60.0f,
+            0.0f,
+            inputMeterDb));
+
+
     // ======================================================
     // INPUT GAIN
     //
@@ -1401,28 +1441,28 @@ processBlock(
     //==============================================================
 
     const int harmonyVoice1Choice =
-        static_cast<int>(
+        juce::roundToInt(
             apvts.getRawParameterValue(
                 PARAM_HARMONY_VOICE1
             )->load()
         );
 
     const int harmonyVoice2Choice =
-        static_cast<int>(
+        juce::roundToInt(
             apvts.getRawParameterValue(
                 PARAM_HARMONY_VOICE2
             )->load()
         );
 
     const int harmonyVoice3Choice =
-        static_cast<int>(
+        juce::roundToInt(
             apvts.getRawParameterValue(
                 PARAM_HARMONY_VOICE3
             )->load()
         );
 
     const int harmonyVoice4Choice =
-        static_cast<int>(
+        juce::roundToInt(
             apvts.getRawParameterValue(
                 PARAM_HARMONY_VOICE4
             )->load()
@@ -1447,14 +1487,14 @@ processBlock(
         pitchDetector.getMidiNote();
 
     const int harmonyKey =
-        static_cast<int>(
+        juce::roundToInt(
             apvts.getRawParameterValue(
                 PARAM_TUNER_KEY
             )->load()
         );
 
     const int harmonyScale =
-        static_cast<int>(
+        juce::roundToInt(
             apvts.getRawParameterValue(
                 PARAM_TUNER_SCALE
             )->load()
@@ -1759,8 +1799,8 @@ processBlock(
     // CREATIVE VOCAL FX
     //==============================================================
 
-    const int creativeFXType =
-        static_cast<int>(
+    const int creativeFXTypeValue =
+        juce::roundToInt(
             apvts.getRawParameterValue(
                 PARAM_FX_TYPE
             )->load()
@@ -1776,7 +1816,27 @@ processBlock(
             PARAM_FX_MIX
         )->load() / 100.0f;
 
-    if (creativeFXType > 0 &&
+    //--------------------------------------------------------------
+    // Convert the APVTS integer parameter into the strongly typed
+    // CreativeFXProcessor::Type enum.
+    //
+    // The parameter is stored as an integer because APVTS choice
+    // parameters use numeric values. CreativeFXProcessor itself
+    // uses its Type enum for safer processing.
+    //--------------------------------------------------------------
+
+    const auto creativeFXType =
+        static_cast<CreativeFXProcessor::Type>(
+            juce::jlimit(
+                0,
+                static_cast<int>(
+                    CreativeFXProcessor::Type::Dream
+                ),
+                creativeFXTypeValue
+            )
+        );
+
+    if (creativeFXTypeValue > 0 &&
         creativeFXMix > 0.0f)
     {
         creativeFXProcessor.processBlock(
@@ -1792,8 +1852,12 @@ processBlock(
     // VOCAL SPACE
     //==============================================================
 
+    // IMPORTANT:
+    // spaceType is declared only once here.
+    // The previous duplicate declaration has been removed.
+
     const int spaceType =
-        static_cast<int>(
+        juce::roundToInt(
             apvts.getRawParameterValue(
                 PARAM_SPACE_TYPE
             )->load()
@@ -1898,13 +1962,49 @@ processBlock(
     );
 
 
+
+    // ==========================================================
+    // OUTPUT LEVEL METER
+    // ==========================================================
+    //
+    // Measure the final signal AFTER all processing and the
+    // OUTPUT gain. This represents what leaves the plugin.
+    //
+
+    float outputPeak = 0.0f;
+
+    for (int channel = 0;
+        channel < buffer.getNumChannels();
+        ++channel)
+    {
+        outputPeak =
+            juce::jmax(
+                outputPeak,
+                buffer.getMagnitude(
+                    channel,
+                    0,
+                    buffer.getNumSamples()));
+    }
+
+    const float outputMeterDb =
+        outputPeak > 0.000001f
+            ? juce::Decibels::gainToDecibels(outputPeak)
+            : -60.0f;
+
+    outputLevelDb.store(
+        juce::jlimit(
+            -60.0f,
+            0.0f,
+            outputMeterDb));
+
+
     // ======================================================
     // SAFETY
     // ======================================================
 
-    buffer.applyGain(
-        1.0f
-    );
+    // buffer.applyGain(
+    //     1.0f
+    // );
 }
 
 

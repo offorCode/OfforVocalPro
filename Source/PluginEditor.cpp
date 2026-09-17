@@ -3,6 +3,30 @@
 
 #include <cmath>
 
+
+//==============================================================================
+// PRESET NAMES
+//==============================================================================
+//
+// These are the initial factory presets.
+// The preset system stores the complete APVTS state,
+// so adding more parameters later will automatically
+// make them part of preset/A-B state storage.
+//
+
+namespace
+{
+    const juce::StringArray factoryPresetNames =
+    {
+        "Default",
+        "Clean Vocal",
+        "Bright Vocal",
+        "Warm Vocal",
+        "Radio Vocal",
+        "Wide Vocal"
+    };
+}
+
 //==============================================================================
 // COLOURS
 //==============================================================================
@@ -304,17 +328,45 @@ OfforVocalProAudioProcessorEditor(
         versionLabel);
 
     // ==========================================================
-    // SETTINGS
+    // SETTINGS BUTTON
+    // ==========================================================
+    //
+    // ImageButton is used instead of TextButton because JUCE
+    // ImageButton supports normal / hover / pressed images.
+    //
+    // The image itself is converted to white inside loadImages().
     // ==========================================================
 
-    settingsButton.setButtonText(
-        "SETTINGS");
-
-    settingsButton.setWantsKeyboardFocus(
-        false);
+    settingsButton.setWantsKeyboardFocus(false);
 
     settingsButton.setMouseCursor(
         juce::MouseCursor::PointingHandCursor);
+
+    // ----------------------------------------------------------
+    // Use the white settings icon.
+    // ----------------------------------------------------------
+
+    if (settingsIcon.isValid())
+    {
+        settingsButton.setImages(
+            false,
+            true,
+            true,
+            settingsIcon,
+            1.0f,
+            juce::Colours::white,
+            settingsIcon,
+            1.0f,
+            juce::Colours::white,
+            settingsIcon,
+            1.0f,
+            juce::Colours::white,
+            0.0f);
+    }
+
+    // ----------------------------------------------------------
+    // SETTINGS action.
+    // ----------------------------------------------------------
 
     settingsButton.onClick =
         [this]
@@ -326,8 +378,17 @@ OfforVocalProAudioProcessorEditor(
                 "OK");
         };
 
-    addAndMakeVisible(
-        settingsButton);
+    addAndMakeVisible(settingsButton);
+
+
+    // ==========================================================
+    // SETTINGS ICON
+    // ==========================================================
+    //
+    // The button itself remains transparent.
+    // The actual white settings icon is supplied separately.
+    //
+
 
     // ==========================================================
     // BYPASS
@@ -451,6 +512,26 @@ OfforVocalProAudioProcessorEditor(
 
     addAndMakeVisible(
         outputLabel);
+
+    // ==========================================================
+    // LEVEL METERS
+    // ==========================================================
+    //
+    // The meters are intentionally separate from the INPUT,
+    // MIX and OUTPUT hardware knobs.
+    //
+
+    inputMeter.setLabel("INPUT");
+    outputMeter.setLabel("OUTPUT");
+
+    inputMeter.setMinimumDecibels(-60.0f);
+    inputMeter.setMaximumDecibels(0.0f);
+
+    outputMeter.setMinimumDecibels(-60.0f);
+    outputMeter.setMaximumDecibels(0.0f);
+
+    addAndMakeVisible(inputMeter);
+    addAndMakeVisible(outputMeter);
 
     // ==========================================================
     // TUNER
@@ -1116,6 +1197,38 @@ OfforVocalProAudioProcessorEditor(
                 spaceMixSlider);
 
     // ==========================================================
+    // PRESET / A-B SYSTEM
+    // ==========================================================
+    //
+    // Set up the controls only after all APVTS attachments
+    // have been created.
+    //
+    // This is important because A/B and presets operate on
+    // the complete APVTS state.
+    //
+
+    setupPresetControls();
+
+    // ----------------------------------------------------------
+    // INITIAL A/B STATES
+    // ----------------------------------------------------------
+    //
+    // At startup both A and B begin with the current plugin
+    // settings. From this point the user can change settings
+    // and compare them.
+    //
+
+    stateA =
+        audioProcessor.apvts.copyState();
+
+    stateB =
+        audioProcessor.apvts.copyState();
+
+    isAActive = true;
+
+    updateABButtonStates();
+
+    // ==========================================================
     // START
     // ==========================================================
 
@@ -1123,6 +1236,756 @@ OfforVocalProAudioProcessorEditor(
         Module::tuner);
 
     startTimerHz(20);
+}
+
+
+//==============================================================================
+// PRESET CONTROLS
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::setupPresetControls()
+{
+    // ==========================================================
+    // PRESET COMBO BOX
+    // ==========================================================
+    //
+    // This stays compact so the header does not become crowded.
+    //
+
+    setupComboBox(
+        presetComboBox);
+
+    presetComboBox.clear();
+
+    for (int i = 0;
+         i < factoryPresetNames.size();
+         ++i)
+    {
+        presetComboBox.addItem(
+            factoryPresetNames[i],
+            i + 1);
+    }
+
+    presetComboBox.setText(
+        factoryPresetNames[0],
+        juce::dontSendNotification);
+
+    presetComboBox.onChange =
+        [this]
+        {
+            const int selectedPreset =
+                presetComboBox.getSelectedId();
+
+            if (selectedPreset > 0)
+                loadFactoryPreset(
+                    selectedPreset - 1);
+        };
+
+    addAndMakeVisible(
+        presetComboBox);
+
+    // ==========================================================
+    // SAVE BUTTON
+    //===========================================================
+    // SAVE creates a real user preset file.
+    //
+    // The complete APVTS state is saved, so all plugin parameters
+    // are preserved.
+    //
+    // A/B remains independent and is used only for comparison.
+
+    savePresetButton.setButtonText(
+        "SAVE");
+
+    savePresetButton.setWantsKeyboardFocus(
+        false);
+
+    savePresetButton.setMouseCursor(
+        juce::MouseCursor::PointingHandCursor);
+
+    savePresetButton.onClick =
+    [this]
+    {
+        // SAVE now creates a real preset file on disk.
+        //
+        // It does NOT overwrite A or B.
+        //
+        // A/B are for instant comparison.
+        // SAVE is for permanent preset storage.
+        savePresetToFile();
+    };
+
+    addAndMakeVisible(
+        savePresetButton);
+
+    // ==========================================================
+    // A BUTTON
+    // ==========================================================
+
+    aButton.setButtonText(
+        "A");
+
+    aButton.setClickingTogglesState(
+        false);
+
+    aButton.setWantsKeyboardFocus(
+        false);
+
+    aButton.setMouseCursor(
+        juce::MouseCursor::PointingHandCursor);
+
+    aButton.onClick =
+        [this]
+        {
+            recallStateA();
+        };
+
+    addAndMakeVisible(
+        aButton);
+
+    // ==========================================================
+    // B BUTTON
+    // ==========================================================
+
+    bButton.setButtonText(
+        "B");
+
+    bButton.setClickingTogglesState(
+        false);
+
+    bButton.setWantsKeyboardFocus(
+        false);
+
+    bButton.setMouseCursor(
+        juce::MouseCursor::PointingHandCursor);
+
+    bButton.onClick =
+        [this]
+        {
+            recallStateB();
+        };
+
+    addAndMakeVisible(
+        bButton);
+
+    updateABButtonStates();
+}
+
+//==============================================================================
+// LOAD FACTORY PRESET
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::loadFactoryPreset(
+    int presetIndex)
+{
+    auto& apvts =
+        audioProcessor.apvts;
+
+    // ==========================================================
+    // HELPER
+    // ==========================================================
+    //
+    // All APVTS parameters are changed using normalized values.
+    //
+    // 0.0 = parameter minimum
+    // 1.0 = parameter maximum
+    //
+    // This works for both continuous parameters and choice
+    // parameters.
+    //
+
+    auto setParameter =
+        [&apvts](const juce::String& parameterID,
+                 float normalizedValue)
+        {
+            if (auto* parameter =
+                    apvts.getParameter(
+                        parameterID))
+            {
+                parameter->beginChangeGesture();
+
+                parameter->setValueNotifyingHost(
+                    juce::jlimit(
+                        0.0f,
+                        1.0f,
+                        normalizedValue));
+
+                parameter->endChangeGesture();
+            }
+        };
+
+    // ==========================================================
+    // START FROM A CLEAN BASELINE
+    // ==========================================================
+    //
+    // These values are intentionally conservative.
+    //
+    // The goal of the factory presets is not to radically change
+    // the sound. They provide useful starting points for vocals.
+    //
+
+    switch (presetIndex)
+    {
+        // ======================================================
+        // DEFAULT
+        // ======================================================
+
+        case 0:
+        {
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_INPUT,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_MIX,
+                1.00f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_OUTPUT,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_RETUNE,
+                0.35f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_SMOOTH,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_FORMANT,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_MIX,
+                1.00f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_DOUBLER_AMOUNT,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_DOUBLER_MIX,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_HARMONY_MIX,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_TYPE,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_AMOUNT,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_MIX,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_SPACE_TYPE,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_SPACE_MIX,
+                0.0f);
+
+            break;
+        }
+
+        // ======================================================
+        // CLEAN VOCAL
+        // ======================================================
+
+        case 1:
+        {
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_INPUT,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_MIX,
+                1.00f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_OUTPUT,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_RETUNE,
+                0.25f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_SMOOTH,
+                0.65f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_FORMANT,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_MIX,
+                0.80f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_DOUBLER_AMOUNT,
+                0.10f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_DOUBLER_MIX,
+                0.10f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_HARMONY_MIX,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_TYPE,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_AMOUNT,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_MIX,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_SPACE_TYPE,
+                0.20f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_SPACE_MIX,
+                0.12f);
+
+            break;
+        }
+
+        // ======================================================
+        // BRIGHT VOCAL
+        // ======================================================
+
+        case 2:
+        {
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_INPUT,
+                0.52f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_MIX,
+                1.00f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_OUTPUT,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_RETUNE,
+                0.35f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_SMOOTH,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_FORMANT,
+                0.60f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_MIX,
+                0.90f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_DOUBLER_AMOUNT,
+                0.18f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_DOUBLER_MIX,
+                0.15f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_HARMONY_MIX,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_TYPE,
+                0.72f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_AMOUNT,
+                0.25f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_MIX,
+                0.15f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_SPACE_TYPE,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_SPACE_MIX,
+                0.18f);
+
+            break;
+        }
+
+        // ======================================================
+        // WARM VOCAL
+        // ======================================================
+
+        case 3:
+        {
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_INPUT,
+                0.48f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_MIX,
+                1.00f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_OUTPUT,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_RETUNE,
+                0.20f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_SMOOTH,
+                0.70f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_FORMANT,
+                0.38f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_MIX,
+                0.75f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_DOUBLER_AMOUNT,
+                0.12f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_DOUBLER_MIX,
+                0.12f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_HARMONY_MIX,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_TYPE,
+                0.20f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_AMOUNT,
+                0.15f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_MIX,
+                0.08f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_SPACE_TYPE,
+                0.35f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_SPACE_MIX,
+                0.15f);
+
+            break;
+        }
+
+        // ======================================================
+        // RADIO VOCAL
+        // ======================================================
+
+        case 4:
+        {
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_INPUT,
+                0.55f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_MIX,
+                1.00f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_OUTPUT,
+                0.48f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_RETUNE,
+                0.55f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_SMOOTH,
+                0.35f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_FORMANT,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_MIX,
+                0.85f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_DOUBLER_AMOUNT,
+                0.05f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_DOUBLER_MIX,
+                0.05f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_HARMONY_MIX,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_TYPE,
+                0.25f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_AMOUNT,
+                0.65f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_MIX,
+                0.55f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_SPACE_TYPE,
+                0.0f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_SPACE_MIX,
+                0.0f);
+
+            break;
+        }
+
+        // ======================================================
+        // WIDE VOCAL
+        // ======================================================
+
+        case 5:
+        {
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_INPUT,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_MIX,
+                1.00f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_OUTPUT,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_RETUNE,
+                0.30f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_SMOOTH,
+                0.55f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_FORMANT,
+                0.50f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_TUNER_MIX,
+                0.85f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_DOUBLER_AMOUNT,
+                0.55f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_DOUBLER_MIX,
+                0.35f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_HARMONY_MIX,
+                0.25f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_TYPE,
+                0.90f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_AMOUNT,
+                0.15f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_FX_MIX,
+                0.10f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_SPACE_TYPE,
+                0.55f);
+
+            setParameter(
+                OfforVocalProAudioProcessor::PARAM_SPACE_MIX,
+                0.30f);
+
+            break;
+        }
+
+        default:
+            return;
+    }
+
+    // ==========================================================
+    // SAVE PRESET RESULT INTO A
+    // ==========================================================
+    //
+    // Loading a factory preset becomes the new A reference.
+    // B keeps its previous state so the user can still compare
+    // against the previous B setting.
+    //
+
+    stateA =
+        audioProcessor.apvts.copyState();
+
+    isAActive = true;
+
+    updateABButtonStates();
+
+    presetComboBox.setText(
+        factoryPresetNames[
+            juce::jlimit(
+                0,
+                factoryPresetNames.size() - 1,
+                presetIndex)],
+        juce::dontSendNotification);
+}
+
+//==============================================================================
+// SAVE CURRENT STATE TO A
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::saveCurrentStateToA()
+{
+    stateA =
+        audioProcessor.apvts.copyState();
+
+    isAActive = true;
+
+    updateABButtonStates();
+}
+
+//==============================================================================
+// SAVE CURRENT STATE TO B
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::saveCurrentStateToB()
+{
+    stateB =
+        audioProcessor.apvts.copyState();
+
+    isAActive = false;
+
+    updateABButtonStates();
+}
+
+//==============================================================================
+// RECALL A
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::recallStateA()
+{
+    if (!stateA.isValid())
+        return;
+
+    audioProcessor.apvts.replaceState(
+        stateA.createCopy());
+
+    isAActive = true;
+
+    updateABButtonStates();
+}
+
+//==============================================================================
+// RECALL B
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::recallStateB()
+{
+    if (!stateB.isValid())
+        return;
+
+    audioProcessor.apvts.replaceState(
+        stateB.createCopy());
+
+    isAActive = false;
+
+    updateABButtonStates();
+}
+
+//==============================================================================
+// A/B BUTTON APPEARANCE
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::updateABButtonStates()
+{
+    // ==========================================================
+    // A BUTTON
+    // ==========================================================
+
+    aButton.setColour(
+        juce::TextButton::buttonColourId,
+        isAActive
+            ? accentColour
+            : panelColour2);
+
+    aButton.setColour(
+        juce::TextButton::textColourOffId,
+        isAActive
+            ? textColour
+            : mutedColour);
+
+    aButton.setColour(
+        juce::TextButton::textColourOnId,
+        textColour);
+
+    // ==========================================================
+    // B BUTTON
+    // ==========================================================
+
+    bButton.setColour(
+        juce::TextButton::buttonColourId,
+        !isAActive
+            ? accentColour
+            : panelColour2);
+
+    bButton.setColour(
+        juce::TextButton::textColourOffId,
+        !isAActive
+            ? textColour
+            : mutedColour);
+
+    bButton.setColour(
+        juce::TextButton::textColourOnId,
+        textColour);
+
+    aButton.repaint();
+    bButton.repaint();
 }
 
 //==============================================================================
@@ -1176,6 +2039,61 @@ OfforVocalProAudioProcessorEditor::loadImages()
         juce::ImageFileFormat::loadFrom(
             BinaryData::settings_png,
             BinaryData::settings_pngSize);
+
+
+    // ==========================================================
+    // CONVERT SETTINGS ICON TO WHITE
+    // ==========================================================
+    //
+    // Preserve the original alpha channel but replace the
+    // original icon colour with pure white.
+    //
+    // This allows a black settings PNG to become a clean
+    // white hardware-style icon.
+    //
+
+    if (settingsIcon.isValid())
+    {
+        juce::Image whiteSettingsIcon(
+            juce::Image::ARGB,
+            settingsIcon.getWidth(),
+            settingsIcon.getHeight(),
+            true);
+
+        whiteSettingsIcon.clear(
+            whiteSettingsIcon.getBounds(),
+            juce::Colours::transparentBlack);
+
+        juce::Image::BitmapData source(
+            settingsIcon,
+            juce::Image::BitmapData::readOnly);
+
+        juce::Image::BitmapData destination(
+            whiteSettingsIcon,
+            juce::Image::BitmapData::readWrite);
+
+        for (int y = 0;
+            y < settingsIcon.getHeight();
+            ++y)
+        {
+            for (int x = 0;
+                x < settingsIcon.getWidth();
+                ++x)
+            {
+                const juce::Colour sourcePixel =
+                    source.getPixelColour(x, y);
+
+                destination.setPixelColour(
+                    x,
+                    y,
+                    juce::Colours::white.withAlpha(
+                        sourcePixel.getAlpha()));
+            }
+        }
+
+        settingsIcon =
+            whiteSettingsIcon;
+    }
 }
 
 //==============================================================================
@@ -1541,22 +2459,72 @@ OfforVocalProAudioProcessorEditor::resized()
         180,
         14);
 
+    // ----------------------------------------------------------
+    // HEADER CONTROL LAYOUT
+    // ----------------------------------------------------------
+    //
+    // Keep the controls compact and aligned on the right.
+    //
+    // PRESET -> SAVE -> A -> B -> SETTINGS -> BYPASS
+    //
+    // The version label is moved closer to the title so it does
+    // not compete with the preset controls.
+    //
+
     versionLabel.setBounds(
-        w - 280,
+        310,
         20,
         55,
         20);
-
-    settingsButton.setBounds(
-        w - 205,
-        16,
-        80,
-        32);
 
     bypassButton.setBounds(
         w - 112,
         17,
         90,
+        30);
+
+    settingsButton.setBounds(
+        w - 205,
+        16,
+        48,
+        32);
+
+    // ==========================================================
+    // PRESET / A-B HEADER CONTROLS
+    // ==========================================================
+    //
+    // Compact controls placed between the title area and the
+    // SETTINGS/BYPASS controls.
+    //
+    // SAVE writes the current APVTS state to a preset file.
+    //
+    // A/B are instant comparison snapshots.
+    //
+
+    const int presetY = 17;
+
+    presetComboBox.setBounds(
+        w - 525,
+        presetY,
+        155,
+        30);
+
+    savePresetButton.setBounds(
+        w - 360,
+        presetY,
+        55,
+        30);
+
+    aButton.setBounds(
+        w - 295,
+        presetY,
+        30,
+        30);
+
+    bButton.setBounds(
+        w - 258,
+        presetY,
+        30,
         30);
 
     // ==========================================================
@@ -1608,8 +2576,26 @@ OfforVocalProAudioProcessorEditor::resized()
     const int panelW = w - 212;
     const int panelH = h - panelY - 98;
 
+    // ==========================================================
+    // MAIN PANEL CONTENT AREA
+    // ==========================================================
+    //
+    // Reserve the right side of the panel for the INPUT/OUTPUT
+    // level meters. This prevents module controls from extending
+    // underneath the meters.
+    //
+
     const int innerX = panelX + 24;
-    const int innerW = panelW - 48;
+
+    // Width reserved for the two vertical meters plus:
+    // - 10 px gap between meters
+    // - 22 px right margin
+    // - 24 px breathing room before the meters
+    //
+    const int meterReservedWidth = 48 + 10 + 48 + 22 + 24;
+
+    const int innerW =
+        panelW - 48 - meterReservedWidth;
 
     // ==========================================================
     // TUNER
@@ -1741,19 +2727,26 @@ OfforVocalProAudioProcessorEditor::resized()
     // DOUBLER
     // ==========================================================
 
-    // doublerTitleLabel.setBounds(
-    //     innerX,
-    //     panelY + 14,
-    //     240,
-    //     24);
+    // Three controls on the first row.
+    // Two controls on the second row.
+    //
+    // This prevents the knobs from entering the meter area
+    // and gives the Doubler module a cleaner hardware layout.
 
     const int dY =
-        panelY + 115;
+        panelY + 95;
 
-    const int dWidth =
+    const int dGap = 18;
+
+    const int dTopWidth =
         juce::jmax(
-            85,
-            (innerW - 48) / 5);
+            80,
+            (innerW - dGap * 2) / 3);
+
+    const int dBottomWidth =
+        juce::jmax(
+            80,
+            (innerW - dGap) / 2);
 
     ProfessionalKnob* dSliders[] =
     {
@@ -1773,42 +2766,74 @@ OfforVocalProAudioProcessorEditor::resized()
         &doublerMixLabel
     };
 
-    for (int i = 0; i < 5; ++i)
+    // ----------------------------------------------------------
+    // TOP ROW
+    // ----------------------------------------------------------
+
+    for (int i = 0; i < 3; ++i)
     {
         const int x =
-            innerX + i * (dWidth + 12);
+            innerX + i * (dTopWidth + dGap);
 
         dLabels[i]->setBounds(
             x,
             dY,
-            dWidth,
+            dTopWidth,
             18);
 
         dSliders[i]->setBounds(
             x,
             dY + 18,
-            dWidth,
-            105);
+            dTopWidth,
+            90);
+    }
+
+    // ----------------------------------------------------------
+    // BOTTOM ROW
+    // ----------------------------------------------------------
+
+    const int bottomY =
+        dY + 125;
+
+    for (int i = 0; i < 2; ++i)
+    {
+        const int x =
+            innerX + i * (dBottomWidth + dGap);
+
+        dLabels[i + 3]->setBounds(
+            x,
+            bottomY,
+            dBottomWidth,
+            18);
+
+        dSliders[i + 3]->setBounds(
+            x,
+            bottomY + 18,
+            dBottomWidth,
+            90);
     }
 
     // ==========================================================
     // HARMONY
     // ==========================================================
-
-    // harmonyTitleLabel.setBounds(
-    //     innerX,
-    //     panelY + 14,
-    //     240,
-    //     24);
+    //
+    // Keep the voice selectors compact so they remain well away
+    // from the right-side level meters.
+    //
 
     const int harmonyY =
-        panelY + 100;
+        panelY + 88;
 
     const int harmonyRowHeight =
-        50;
+        43;
 
     const int harmonyLabelWidth =
-        80;
+        72;
+
+    const int harmonyBoxWidth =
+        juce::jmin(
+            250,
+            innerW - harmonyLabelWidth - 10);
 
     juce::ComboBox* harmonyBoxes[] =
     {
@@ -1840,19 +2865,23 @@ OfforVocalProAudioProcessorEditor::resized()
         harmonyBoxes[i]->setBounds(
             innerX + harmonyLabelWidth + 10,
             y,
-            innerW - harmonyLabelWidth - 10,
+            harmonyBoxWidth,
             34);
     }
 
+    // ----------------------------------------------------------
+    // HARMONY MIX
+    // ----------------------------------------------------------
+
     harmonyMixLabel.setBounds(
         innerX,
-        harmonyY + 220,
+        harmonyY + 180,
         120,
         18);
 
     harmonyMixSlider.setBounds(
         innerX,
-        harmonyY + 240,
+        harmonyY + 200,
         160,
         90);
 
@@ -1860,26 +2889,28 @@ OfforVocalProAudioProcessorEditor::resized()
     // CREATIVE FX
     // ==========================================================
 
-    // creativeFxTitleLabel.setBounds(
-    //     innerX,
-    //     panelY + 14,
-    //     240,
-    //     24);
+    // Keep the effect selector inside the module content area.
+    // The right side is reserved for the level meters.
 
     creativeFxTypeLabel.setBounds(
         innerX,
-        panelY + 100,
+        panelY + 96,
         100,
         18);
 
+    const int fxComboWidth =
+        juce::jmin(
+            300,
+            innerW);
+
     creativeFxTypeComboBox.setBounds(
         innerX,
-        panelY + 124,
-        innerW,
+        panelY + 120,
+        fxComboWidth,
         38);
 
     const int fxKnobY =
-        panelY + 220;
+        panelY + 195;
 
     creativeFxAmountLabel.setBounds(
         innerX,
@@ -1909,31 +2940,35 @@ OfforVocalProAudioProcessorEditor::resized()
     // SPACE
     // ==========================================================
 
-    // spaceTitleLabel.setBounds(
-    //     innerX,
-    //     panelY + 14,
-    //     240,
-    //     24);
+    // Keep the Space type selector compact and away from the
+    // right-side level meters.
 
     spaceTypeLabel.setBounds(
         innerX,
-        panelY + 100,
+        panelY + 96,
         80,
         18);
 
+    const int spaceComboWidth =
+        juce::jmin(
+            300,
+            innerW);
+
     spaceTypeComboBox.setBounds(
         innerX,
-        panelY + 124,
-        innerW,
+        panelY + 120,
+        spaceComboWidth,
         38);
 
     const int sY =
-        panelY + 215;
+        panelY + 205;
+
+    const int sGap = 14;
 
     const int sWidth =
         juce::jmax(
-            80,
-            (innerW - 48) / 5);
+            70,
+            (innerW - sGap * 4) / 5);
 
     ProfessionalKnob* sSliders[] =
     {
@@ -1956,7 +2991,7 @@ OfforVocalProAudioProcessorEditor::resized()
     for (int i = 0; i < 5; ++i)
     {
         const int x =
-            innerX + i * (sWidth + 12);
+            innerX + i * (sWidth + sGap);
 
         sLabels[i]->setBounds(
             x,
@@ -1968,7 +3003,7 @@ OfforVocalProAudioProcessorEditor::resized()
             x,
             sY + 18,
             sWidth,
-            105);
+            100);
     }
 
     // ==========================================================
@@ -2042,6 +3077,48 @@ OfforVocalProAudioProcessorEditor::resized()
         footerY + 15,
         globalKnobSize,
         54);
+
+    // ==========================================================
+    // INPUT / OUTPUT LEVEL METERS
+    // ==========================================================
+    //
+    // Two vertical meters standing shoulder-to-shoulder.
+    // They live on the right side of the main panel.
+    //
+    // IMPORTANT:
+    // These do not interfere with the existing INPUT/MIX/OUTPUT
+    // knobs in the footer.
+    //
+
+    const int meterWidth = 48;
+    const int meterHeight = 150;
+    const int meterGap = 10;
+
+    const int meterRightMargin = 22;
+
+    const int metersTotalWidth =
+        meterWidth * 2 + meterGap;
+
+    const int metersX =
+        panelX
+        + panelW
+        - meterRightMargin
+        - metersTotalWidth;
+
+    const int metersY =
+        panelY + 82;
+
+    inputMeter.setBounds(
+        metersX,
+        metersY,
+        meterWidth,
+        meterHeight);
+
+    outputMeter.setBounds(
+        metersX + meterWidth + meterGap,
+        metersY,
+        meterWidth,
+        meterHeight);
 }
 
 //==============================================================================
@@ -3031,6 +4108,24 @@ void
 OfforVocalProAudioProcessorEditor::
 timerCallback()
 {
+    // ==========================================================
+    // LEVEL METERS
+    // ==========================================================
+    //
+    // Always update these first. The tuner may have no pitch,
+    // but the audio signal can still be present.
+    //
+
+    inputMeter.setLevelDecibels(
+        audioProcessor.getInputLevelDb());
+
+    outputMeter.setLevelDecibels(
+        audioProcessor.getOutputLevelDb());
+
+    // ==========================================================
+    // TUNER
+    // ==========================================================
+
     if (!audioProcessor.hasDetectedPitch())
     {
         detectedNoteLabel.setText(
@@ -3147,4 +4242,220 @@ timerCallback()
         accentColour);
 
     repaint();
+}
+
+
+//==============================================================================
+// SAVE PRESET TO FILE
+//==============================================================================
+//
+// SAVE creates a real OFFOR Vocal Pro preset on disk.
+//
+// The complete APVTS state is stored, meaning the preset contains
+// all plugin parameters rather than only the currently visible
+// module settings.
+//
+// A/B is NOT affected by SAVE.
+//
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::savePresetToFile()
+{
+    // ----------------------------------------------------------
+    // Create the file chooser.
+    // ----------------------------------------------------------
+    //
+    // Keep the chooser alive as a member of the editor because
+    // launchAsync() requires the FileChooser to remain alive
+    // until the user finishes selecting a location.
+    //
+
+    const auto presetFolder =
+        juce::File::getSpecialLocation(
+            juce::File::userDocumentsDirectory)
+        .getChildFile(
+            "OFFOR Vocal Pro");
+
+    // Create the folder if it does not already exist.
+    presetFolder.createDirectory();
+
+    presetFileChooser =
+        std::make_unique<juce::FileChooser>(
+            "Save OFFOR Vocal Pro Preset",
+            presetFolder
+                .getChildFile(
+                    "My Vocal Preset.offorvocalpreset"),
+            "*.offorvocalpreset");
+
+    presetFileChooser->launchAsync(
+        juce::FileBrowserComponent::saveMode
+        | juce::FileBrowserComponent::canSelectFiles
+        | juce::FileBrowserComponent::warnAboutOverwriting,
+
+        [this](const juce::FileChooser& chooser)
+        {
+            const juce::File file =
+                chooser.getResult();
+
+            if (file == juce::File{})
+                return;
+
+            // --------------------------------------------------
+            // Make sure the correct preset extension exists.
+            // --------------------------------------------------
+
+            juce::File presetFile = file;
+
+            if (!presetFile.hasFileExtension(
+                    "offorvocalpreset"))
+            {
+                presetFile =
+                    presetFile.withFileExtension(
+                        "offorvocalpreset");
+            }
+
+            // --------------------------------------------------
+            // Copy the COMPLETE plugin state.
+            // --------------------------------------------------
+
+            const juce::ValueTree state =
+                audioProcessor.apvts.copyState();
+
+            // Convert the ValueTree to XML.
+            std::unique_ptr<juce::XmlElement> xml =
+                state.createXml();
+
+            if (xml == nullptr)
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "OFFOR VOCAL PRO",
+                    "Could not create the preset data.",
+                    "OK");
+
+                return;
+            }
+
+            // --------------------------------------------------
+            // Add preset information.
+            // --------------------------------------------------
+
+            xml->setAttribute(
+                "plugin",
+                "OFFOR VOCAL PRO");
+
+            xml->setAttribute(
+                "presetVersion",
+                "1.0");
+
+            // --------------------------------------------------
+            // Write the XML to disk.
+            // --------------------------------------------------
+
+            if (!xml->writeTo(
+                    presetFile))
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "OFFOR VOCAL PRO",
+                    "Could not save the preset file.",
+                    "OK");
+
+                return;
+            }
+
+            // --------------------------------------------------
+            // SAVE successful.
+            // --------------------------------------------------
+
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "OFFOR VOCAL PRO",
+                "Preset saved successfully:\n\n"
+                + presetFile.getFileName(),
+                "OK");
+        });
+}
+
+
+//==============================================================================
+// LOAD PRESET FROM FILE
+//==============================================================================
+//
+// Loads a previously saved OFFOR Vocal Pro preset.
+//
+// The complete APVTS state is restored.
+//
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::loadPresetFromFile(
+    const juce::File& file)
+{
+    if (!file.existsAsFile())
+        return;
+
+    // ----------------------------------------------------------
+    // Read the XML file.
+    // ----------------------------------------------------------
+
+    auto xml =
+        juce::XmlDocument::parse(file);
+
+    if (xml == nullptr)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "OFFOR VOCAL PRO",
+            "The selected preset file is invalid.",
+            "OK");
+
+        return;
+    }
+
+    // ----------------------------------------------------------
+    // Convert XML back into a ValueTree.
+    // ----------------------------------------------------------
+
+    const juce::ValueTree loadedState =
+        juce::ValueTree::fromXml(*xml);
+
+    if (!loadedState.isValid())
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "OFFOR VOCAL PRO",
+            "The selected preset could not be loaded.",
+            "OK");
+
+        return;
+    }
+
+    // ----------------------------------------------------------
+    // Restore the complete APVTS state.
+    // ----------------------------------------------------------
+
+    audioProcessor.apvts.replaceState(
+        loadedState);
+
+    // ----------------------------------------------------------
+    // Repaint the interface so all controls immediately
+    // reflect the loaded preset.
+    // ----------------------------------------------------------
+
+    repaint();
+
+    // ----------------------------------------------------------
+    // The loaded preset becomes the current A state.
+    //
+    // B remains untouched.
+    // ----------------------------------------------------------
+
+    stateA =
+        audioProcessor.apvts.copyState();
+
+    isAActive = true;
+
+    updateABButtonStates();
 }

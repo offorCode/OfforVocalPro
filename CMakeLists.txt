@@ -66,6 +66,9 @@ target_sources(OfforVocalPro
         Source/PluginEditor.cpp
         Source/PluginEditor.h
 
+        Source/UI/LevelMeter.cpp
+        Source/UI/LevelMeter.h
+
         Source/Audio/PitchDetector.cpp
         Source/Audio/PitchDetector.h
         Source/Audio/PitchCorrector.cpp

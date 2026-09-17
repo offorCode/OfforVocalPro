@@ -209,30 +209,30 @@ void DoublerProcessor::processBlock(
     // UPDATE LFO PHASES
     // ======================================================
 
-    const double leftIncrement =
-        lfoRateLeft / sampleRate;
+    // const double leftIncrement =
+    //     lfoRateLeft / sampleRate;
 
-    const double rightIncrement =
-        lfoRateRight / sampleRate;
+    // const double rightIncrement =
+    //     lfoRateRight / sampleRate;
 
-    lfoPhaseLeft +=
-        leftIncrement * samples;
+    // lfoPhaseLeft +=
+    //     leftIncrement * samples;
 
-    lfoPhaseRight +=
-        rightIncrement * samples;
+    // lfoPhaseRight +=
+    //     rightIncrement * samples;
 
 
-    lfoPhaseLeft =
-        std::fmod(
-            lfoPhaseLeft,
-            1.0
-        );
+    // lfoPhaseLeft =
+    //     std::fmod(
+    //         lfoPhaseLeft,
+    //         1.0
+    //     );
 
-    lfoPhaseRight =
-        std::fmod(
-            lfoPhaseRight,
-            1.0
-        );
+    // lfoPhaseRight =
+    //     std::fmod(
+    //         lfoPhaseRight,
+    //         1.0
+    //     );
 }
 
 
@@ -331,6 +331,26 @@ void DoublerProcessor::processSample(
         sineLfo(
             lfoPhaseRight
         );
+
+    // ======================================================
+    // ADVANCE LFO PER SAMPLE
+    //
+    // The LFO must advance for every audio sample.
+    // Updating it once per block causes staircase
+    // modulation and can create audible artifacts.
+    // ======================================================
+
+    lfoPhaseLeft +=
+        lfoRateLeft / sampleRate;
+
+    lfoPhaseRight +=
+        lfoRateRight / sampleRate;
+
+    if (lfoPhaseLeft >= 1.0)
+        lfoPhaseLeft -= 1.0;
+
+    if (lfoPhaseRight >= 1.0)
+        lfoPhaseRight -= 1.0;
 
 
     // Slightly different modulation directions.

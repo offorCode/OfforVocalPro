@@ -1,7 +1,6 @@
 #include "PitchDetector.h"
 
 #include <cmath>
-#include <iostream>
 #include <algorithm>
 
 // ==========================================================
@@ -692,37 +691,7 @@ void PitchDetector::analyse()
 
     if (diagnosticCounter < 100)
     {
-        std::cout
-            << "\n========== PITCH ANALYSIS ==========\n"
-            << "RMS: "
-            << rms << "\n"
-            << "Selected lag: "
-            << bestLag << "\n"
-            << "Selected frequency: "
-            << (
-                bestLag > 0
-                    ? static_cast<float>(
-                        sampleRate /
-                        static_cast<double>(
-                            bestLag
-                        )
-                    )
-                    : 0.0f
-            )
-            << "\n"
-            << "Selected correlation: "
-            << bestCorrelation << "\n"
-            << "Minimum confidence: "
-            << minimumConfidence << "\n"
-            << "Acquisition frames: "
-            << acquisitionFrames << "\n"
-            << "Acquisition frequency: "
-            << acquisitionFrequency << "\n"
-            << "Hold frames remaining: "
-            << holdFramesRemaining << "\n"
-            << "====================================\n"
-            << std::endl;
-
+        
         ++diagnosticCounter;
     }
 
@@ -812,22 +781,7 @@ void PitchDetector::analyse()
     if (pitchJump >
         maximumPitchJumpSemitones)
     {
-        std::cout
-            << "\n========== CONTINUITY REJECT ==========\n"
-            << "Previous frequency: "
-            << lastValidFrequency << "\n"
-            << "Detected frequency: "
-            << detectedFrequency << "\n"
-            << "Pitch jump: "
-            << pitchJump
-            << " semitones\n"
-            << "Maximum allowed jump: "
-            << maximumPitchJumpSemitones << "\n"
-            << "Correlation: "
-            << bestCorrelation << "\n"
-            << "========================================\n"
-            << std::endl;
-
+        
         if (holdFramesRemaining > 0)
         {
             --holdFramesRemaining;
@@ -970,17 +924,7 @@ bool PitchDetector::acquirePitch(
     // LOCK
     // ======================================================
 
-    std::cout
-        << "\n========== PITCH ACQUIRED ==========\n"
-        << "Frequency: "
-        << acquisitionFrequency << "\n"
-        << "Confidence: "
-        << acquisitionConfidence << "\n"
-        << "Frames: "
-        << acquisitionFrames << "\n"
-        << "====================================\n"
-        << std::endl;
-
+    
     storeValidPitch(
         acquisitionFrequency,
         acquisitionConfidence

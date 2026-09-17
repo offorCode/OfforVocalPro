@@ -37,12 +37,33 @@ void PitchCorrector::prepare(
             newNumChannels
         );
 
+    // ======================================================
+    // PITCH DELAY BUFFER
+    // ======================================================
+
     delayBuffer.setSize(
         numChannels,
         delayBufferSize
     );
 
     delayBuffer.clear();
+
+    // ======================================================
+    // DRY LATENCY COMPENSATION BUFFER
+    //
+    // This is the important fix for the slap-back.
+    // ======================================================
+
+    dryDelayBuffer.setSize(
+        numChannels,
+        delayBufferSize
+    );
+
+    dryDelayBuffer.clear();
+
+    // ======================================================
+    // WINDOW
+    // ======================================================
 
     window.allocate(
         grainSize,
@@ -83,28 +104,93 @@ void PitchCorrector::prepare(
 
 void PitchCorrector::reset()
 {
+    // ======================================================
+    // CLEAR PITCH BUFFER
+    // ======================================================
+
     if (delayBuffer.getNumChannels() > 0)
         delayBuffer.clear();
+
+    // ======================================================
+    // CLEAR DRY COMPENSATION BUFFER
+    // ======================================================
+
+    if (dryDelayBuffer.getNumChannels() > 0)
+        dryDelayBuffer.clear();
+
+    // ======================================================
+    // POSITION
+    // ======================================================
 
     writePosition = 0;
 
     grainCounter = 0;
 
+    // ======================================================
+    // PITCH
+    // ======================================================
+
     currentRatio = 1.0f;
 
     targetRatio = 1.0f;
 
+    // ======================================================
+    // CORRECTION MIX
+    // ======================================================
+
     correctionMix = 0.0f;
+
     targetCorrectionMix = 0.0f;
+
+    // ======================================================
+    // RESPONSE
+    // ======================================================
+
+    response = 0.50f;
+
+    targetResponse = 0.50f;
+
+    // ======================================================
+    // INPUT STATE
+    // ======================================================
 
     inputWasSilent = true;
 
     inputEnvelope = 0.0f;
 
+    // ======================================================
+    // STARTUP
+    // ======================================================
+
     startupSamplesRemaining =
         startupWarmupSamples;
 
+    // ======================================================
+    // GRAINS
+    // ======================================================
+
     resetGrains();
+}
+
+// ==========================================================
+// SET RESPONSE
+// ==========================================================
+//
+// 0.0 = smooth / slow
+// 1.0 = fast / aggressive
+//
+// The parameter itself is smoothed internally so that moving
+// the UI knob does not create a sudden pitch jump.
+// ==========================================================
+
+void PitchCorrector::setResponse(float newResponse)
+{
+    targetResponse =
+        juce::jlimit(
+            0.0f,
+            1.0f,
+            newResponse
+        );
 }
 
 // ==========================================================
@@ -118,8 +204,11 @@ void PitchCorrector::resetGrains()
     for (auto& grain : grains)
     {
         grain.active = false;
+
         grain.readPosition = 0.0f;
+
         grain.phase = 0.0f;
+
         grain.increment = 1.0f;
     }
 }
@@ -151,6 +240,10 @@ void PitchCorrector::processBlock(
         return;
     }
 
+    // ======================================================
+    // SAFETY LIMITS
+    // ======================================================
+
     strength =
         juce::jlimit(
             0.0f,
@@ -166,12 +259,34 @@ void PitchCorrector::processBlock(
         );
 
     // ======================================================
+    // SMOOTH RESPONSE PARAMETER
+    //
+    // This prevents zipper-like changes when the user moves
+    // the Response knob.
+    // ======================================================
+
+    const float responseSmoothing =
+        0.0025f;
+
+    response +=
+        (targetResponse - response)
+        *
+        responseSmoothing;
+
+    response =
+        juce::jlimit(
+            0.0f,
+            1.0f,
+            response
+        );
+
+    // ======================================================
     // SMOOTH CORRECTION ON/OFF
     // ======================================================
 
     targetCorrectionMix =
         (pitchDetected &&
-        detectedFrequency > 20.0f)
+         detectedFrequency > 20.0f)
             ? strength
             : 0.0f;
 
@@ -179,13 +294,15 @@ void PitchCorrector::processBlock(
         static_cast<float>(
             juce::jmax(
                 1.0,
-                sampleRate *
+                sampleRate
+                *
                 (correctionFadeTimeMs / 1000.0)
             )
         );
 
     const float fadeCoefficient =
-        1.0f -
+        1.0f
+        -
         std::exp(
             -1.0f / fadeTimeSamples
         );
@@ -217,31 +334,60 @@ void PitchCorrector::processBlock(
     targetRatio = desiredRatio;
 
     // ======================================================
-    // RETUNE
+    // RETUNE + RESPONSE
+    //
+    // RETUNE controls how much pitch movement is smoothed.
+    //
+    // RESPONSE controls how quickly the pitch engine reacts.
+    //
+    // Low response:
+    //     smoother / slower
+    //
+    // High response:
+    //     faster / more aggressive
     // ======================================================
 
-    const float smoothing =
+    const float baseSmoothing =
         0.0005f
         +
         retuneAmount
+        * 0.008f;
+
+    // Response adds additional reaction speed.
+    //
+    // At response = 0:
+    //     very smooth
+    //
+    // At response = 1:
+    //     substantially faster
+    //
+
+    const float responseBoost =
+        response
         *
-        0.008f;
+        0.035f;
 
     const float ratioSmoothing =
         juce::jlimit(
             0.0001f,
             0.05f,
-            smoothing
+            baseSmoothing
+            +
+            responseBoost
         );
 
     // ======================================================
-    // PROCESS
+    // PROCESS EVERY SAMPLE
     // ======================================================
 
     for (int sample = 0;
          sample < numSamples;
          ++sample)
     {
+        // ==================================================
+        // MOVE CURRENT RATIO TOWARD TARGET
+        // ==================================================
+
         currentRatio +=
             (
                 targetRatio
@@ -257,8 +403,11 @@ void PitchCorrector::processBlock(
                 2.0f,
                 currentRatio
             );
-        
-        // Smoothly enter/leave pitch correction.
+
+        // ==================================================
+        // SMOOTH CORRECTION MIX
+        // ==================================================
+
         correctionMix +=
             (
                 targetCorrectionMix
@@ -267,6 +416,10 @@ void PitchCorrector::processBlock(
             )
             *
             fadeCoefficient;
+
+        // ==================================================
+        // PROCESS SAMPLE
+        // ==================================================
 
         processSample(
             buffer,
@@ -331,7 +484,7 @@ void PitchCorrector::processSample(
     }
 
     // ======================================================
-    // ENVELOPE
+    // INPUT ENVELOPE
     // ======================================================
 
     if (inputLevel > inputEnvelope)
@@ -377,7 +530,14 @@ void PitchCorrector::processSample(
         currentlySilent;
 
     // ======================================================
-    // WRITE INPUT TO DELAY BUFFER
+    // WRITE INPUT TO BOTH BUFFERS
+    //
+    // delayBuffer:
+    //     used by the pitch engine.
+    //
+    // dryDelayBuffer:
+    //     used to delay the original signal by exactly the
+    //     same amount.
     // ======================================================
 
     for (int channel = 0;
@@ -390,18 +550,79 @@ void PitchCorrector::processSample(
                 bufferChannels - 1
             );
 
-        delayBuffer.setSample(
-            channel,
-            writePosition,
+        const float inputSample =
             buffer.getSample(
                 sourceChannel,
                 sampleIndex
-            )
+            );
+
+        // Pitch engine history
+        delayBuffer.setSample(
+            channel,
+            writePosition,
+            inputSample
+        );
+
+        // Dry latency compensation history
+        dryDelayBuffer.setSample(
+            channel,
+            writePosition,
+            inputSample
         );
     }
 
     // ======================================================
+    // READ DELAY-COMPENSATED DRY SIGNAL
+    //
+    // This is the critical fix.
+    //
+    // We do NOT use "original" directly for the dry signal.
+    //
+    // Instead:
+    //
+    //     dry = input delayed by minimumDelaySamples
+    //
+    // This means the dry and corrected signals are now
+    // time-aligned.
+    // ======================================================
+
+    float delayedDry[2] =
+    {
+        0.0f,
+        0.0f
+    };
+
+    const float dryReadPosition =
+        wrapPosition(
+            static_cast<float>(writePosition)
+            -
+            minimumDelaySamples,
+            static_cast<float>(
+                delayBufferSize
+            )
+        );
+
+    for (int channel = 0;
+         channel < numChannels &&
+         channel < 2;
+         ++channel)
+    {
+        delayedDry[channel] =
+            readDryDelayed(
+                channel,
+                dryReadPosition
+            );
+    }
+
+    // ======================================================
     // WARMUP
+    //
+    // During startup we don't yet have enough history for
+    // reliable pitch processing.
+    //
+    // We output the delayed dry signal instead of the
+    // immediate input. This keeps the output latency
+    // consistent.
     // ======================================================
 
     if (startupSamplesRemaining > 0)
@@ -421,7 +642,7 @@ void PitchCorrector::processSample(
             buffer.setSample(
                 channel,
                 sampleIndex,
-                original[channel]
+                delayedDry[channel]
             );
         }
 
@@ -470,7 +691,7 @@ void PitchCorrector::processSample(
     --grainCounter;
 
     // ======================================================
-    // RENDER
+    // RENDER CORRECTED SIGNAL
     // ======================================================
 
     float corrected[2] =
@@ -515,6 +736,10 @@ void PitchCorrector::processSample(
             }
         }
 
+        // ==================================================
+        // ADVANCE GRAIN
+        // ==================================================
+
         grain.readPosition +=
             grain.increment;
 
@@ -536,6 +761,7 @@ void PitchCorrector::processSample(
         if (grain.phase >= 1.0f)
         {
             grain.phase = 1.0f;
+
             grain.active = false;
         }
     }
@@ -573,6 +799,18 @@ void PitchCorrector::processSample(
 
     // ======================================================
     // SAFE OUTPUT BLEND
+    //
+    // IMPORTANT:
+    //
+    // BEFORE:
+    //
+    //     original + delayed corrected
+    //
+    // AFTER:
+    //
+    //     delayedDry + delayed corrected
+    //
+    // Both signals are now aligned.
     // ======================================================
 
     const float wet =
@@ -591,12 +829,19 @@ void PitchCorrector::processSample(
          ++channel)
     {
         float output =
-            original[channel] * dry
+            delayedDry[channel] * dry
             +
             corrected[channel] * wet;
 
+        // ==================================================
+        // SAFETY
+        // ==================================================
+
         if (!std::isfinite(output))
-            output = original[channel];
+        {
+            output =
+                delayedDry[channel];
+        }
 
         output =
             juce::jlimit(
@@ -652,7 +897,7 @@ void PitchCorrector::startGrain(
 }
 
 // ==========================================================
-// INTERPOLATED READ
+// INTERPOLATED PITCH BUFFER READ
 // ==========================================================
 
 float PitchCorrector::readInterpolated(
@@ -700,6 +945,71 @@ float PitchCorrector::readInterpolated(
 
     const float sample2 =
         delayBuffer.getSample(
+            channel,
+            index2
+        );
+
+    return
+        sample1
+        +
+        (
+            sample2
+            -
+            sample1
+        )
+        *
+        fraction;
+}
+
+// ==========================================================
+// DRY DELAYED READ
+// ==========================================================
+
+float PitchCorrector::readDryDelayed(
+    int channel,
+    float position) const
+{
+    if (channel < 0 ||
+        channel >= dryDelayBuffer.getNumChannels())
+    {
+        return 0.0f;
+    }
+
+    position =
+        wrapPosition(
+            position,
+            static_cast<float>(
+                delayBufferSize
+            )
+        );
+
+    const int index1 =
+        static_cast<int>(
+            position
+        );
+
+    const int index2 =
+        (
+            index1 + 1
+        )
+        %
+        delayBufferSize;
+
+    const float fraction =
+        position
+        -
+        static_cast<float>(
+            index1
+        );
+
+    const float sample1 =
+        dryDelayBuffer.getSample(
+            channel,
+            index1
+        );
+
+    const float sample2 =
+        dryDelayBuffer.getSample(
             channel,
             index2
         );

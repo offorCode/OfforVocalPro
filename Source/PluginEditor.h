@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "UI/LevelMeter.h"
 
 //==============================================================================
 class OfforVocalProAudioProcessorEditor
@@ -89,16 +90,93 @@ private:
     juce::Label subtitleLabel;
     juce::Label versionLabel;
 
-    juce::TextButton settingsButton;
-    juce::ToggleButton bypassButton;
+    // ==========================================================
+    // SETTINGS BUTTON
+    // ==========================================================
+    //
+    // The SETTINGS text is replaced by setting.png.
+    //
+    // The image will be loaded from BinaryData and recoloured
+    // white in PluginEditor.cpp.
+    //
+
+    // SETTINGS icon button.
+    // Uses the white settings.png image directly.
+    juce::ImageButton settingsButton;
 
     juce::Image settingsIcon;
+
+    juce::ToggleButton bypassButton;
 
     juce::Image radioTunerIcon;
     juce::Image doublerIcon;
     juce::Image harmonyIcon;
     juce::Image fxIcon;
     juce::Image spaceIcon;
+
+    // ==========================================================
+    // PRESET SYSTEM
+    // ==========================================================
+    //
+    // Presets are shown directly in the header.
+    //
+    // SAVE opens a file chooser and stores the complete APVTS
+    // state as an OFFOR VOCAL PRO preset file.
+    //
+
+    juce::ComboBox presetComboBox;
+    juce::TextButton savePresetButton;
+
+    // Keeps the asynchronous JUCE FileChooser alive while
+    // the user is selecting a save location.
+    std::unique_ptr<juce::FileChooser> presetFileChooser;
+
+    // ==========================================================
+    // A / B COMPARISON
+    // ==========================================================
+    //
+    // A and B each contain a complete copy of the APVTS state.
+    //
+    // This allows the entire plugin configuration to be compared,
+    // rather than only comparing individual parameters.
+    //
+
+    juce::TextButton aButton;
+    juce::TextButton bButton;
+
+    juce::ValueTree stateA;
+    juce::ValueTree stateB;
+
+    bool isAActive = true;
+
+    // ==========================================================
+    // PRESET / A-B HELPERS
+    // ==========================================================
+
+    void setupPresetControls();
+
+    void loadFactoryPreset(int presetIndex);
+
+    void saveCurrentStateToA();
+
+    void saveCurrentStateToB();
+
+    void recallStateA();
+
+    void recallStateB();
+
+    void updateABButtonStates();
+
+    // ==========================================================
+    // FILE PRESET HELPERS
+    // ==========================================================
+
+    // Save the complete APVTS state to a .offorvocalpreset file.
+    void savePresetToFile();
+
+    // Load a previously saved .offorvocalpreset file.
+    void loadPresetFromFile(
+        const juce::File& file);
 
     // ==========================================================
     // PROFESSIONAL HARDWARE KNOB
@@ -139,10 +217,6 @@ private:
     // GLOBAL CONTROLS
     // ==========================================================
 
-    // juce::Slider inputSlider;
-    // juce::Slider globalMixSlider;
-    // juce::Slider outputSlider;
-
     ProfessionalKnob inputSlider;
     ProfessionalKnob globalMixSlider;
     ProfessionalKnob outputSlider;
@@ -150,6 +224,18 @@ private:
     juce::Label inputLabel;
     juce::Label globalMixLabel;
     juce::Label outputLabel;
+
+    // ==========================================================
+    // LEVEL METERS
+    // ==========================================================
+    //
+    // Visualization-only meters.
+    //
+    // They do NOT replace the INPUT or OUTPUT knobs.
+    //
+
+    LevelMeter inputMeter;
+    LevelMeter outputMeter;
 
     // ==========================================================
     // TUNER
@@ -166,11 +252,6 @@ private:
     juce::ComboBox keyComboBox;
     juce::ComboBox scaleComboBox;
     juce::ComboBox modeComboBox;
-
-    // juce::Slider tunerRetuneSlider;
-    // juce::Slider tunerSmoothSlider;
-    // juce::Slider tunerFormantSlider;
-    // juce::Slider tunerMixSlider;
 
     ProfessionalKnob tunerRetuneSlider;
     ProfessionalKnob tunerSmoothSlider;
@@ -191,12 +272,6 @@ private:
     // ==========================================================
 
     juce::Label doublerTitleLabel;
-
-    // juce::Slider doublerAmountSlider;
-    // juce::Slider doublerDetuneSlider;
-    // juce::Slider doublerTimingSlider;
-    // juce::Slider doublerWidthSlider;
-    // juce::Slider doublerMixSlider;
 
     ProfessionalKnob doublerAmountSlider;
     ProfessionalKnob doublerDetuneSlider;
@@ -226,7 +301,6 @@ private:
     juce::Label harmonyVoice3Label;
     juce::Label harmonyVoice4Label;
 
-    // juce::Slider harmonyMixSlider;
     ProfessionalKnob harmonyMixSlider;
     juce::Label harmonyMixLabel;
 
@@ -238,8 +312,6 @@ private:
 
     juce::ComboBox creativeFxTypeComboBox;
 
-    // juce::Slider creativeFxAmountSlider;
-    // juce::Slider creativeFxMixSlider;
     ProfessionalKnob creativeFxAmountSlider;
     ProfessionalKnob creativeFxMixSlider;
 
@@ -255,11 +327,6 @@ private:
 
     juce::ComboBox spaceTypeComboBox;
 
-    // juce::Slider spaceSizeSlider;
-    // juce::Slider spaceDecaySlider;
-    // juce::Slider spacePreDelaySlider;
-    // juce::Slider spaceDampingSlider;
-    // juce::Slider spaceMixSlider;
     ProfessionalKnob spaceSizeSlider;
     ProfessionalKnob spaceDecaySlider;
     ProfessionalKnob spacePreDelaySlider;
@@ -401,6 +468,9 @@ private:
         juce::AudioProcessorValueTreeState::SliderAttachment>
         spaceSizeAttachment;
 
+    // FIX:
+    // AudioProcessorValueTreeState is the correct APVTS namespace.
+    //
     std::unique_ptr<
         juce::AudioProcessorValueTreeState::SliderAttachment>
         spaceDecayAttachment;

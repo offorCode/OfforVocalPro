@@ -287,6 +287,25 @@ public:
         return targetPitchClass.load();
     }
 
+    // ==========================================================
+    // LEVEL METERS
+    // ==========================================================
+    //
+    // These values are written by the audio thread and read by
+    // the editor timer. Atomics make this safe without using a
+    // mutex or touching GUI objects from the audio thread.
+    //
+
+    float getInputLevelDb() const
+    {
+        return inputLevelDb.load();
+    }
+
+    float getOutputLevelDb() const
+    {
+        return outputLevelDb.load();
+    }
+
 
 private:
 
@@ -398,6 +417,21 @@ private:
     {
         0
     };
+
+
+    // ==========================================================
+    // LEVEL METER STATE
+    // ==========================================================
+    //
+    // Audio thread -> writes
+    // GUI timer    -> reads
+    //
+    // We store dB values because LevelMeter already understands
+    // dB directly.
+    //
+
+    std::atomic<float> inputLevelDb { -60.0f };
+    std::atomic<float> outputLevelDb { -60.0f };
 
 
     // ==========================================================

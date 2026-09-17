@@ -107,7 +107,7 @@ void CreativeFXProcessor::reset()
 
 void CreativeFXProcessor::processBlock(
     juce::AudioBuffer<float>& buffer,
-    int type,
+    Type type,
     float amount,
     float mix
 )
@@ -172,14 +172,7 @@ void CreativeFXProcessor::processBlock(
 
         envelope = currentEnvelope;
 
-        const Type fxType =
-            static_cast<Type>(
-                juce::jlimit(
-                    0,
-                    static_cast<int>(Type::Wide),
-                    type
-                )
-            );
+        const Type fxType = type;
 
         float wetLeft =
             processSample(
