@@ -1,6 +1,124 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+#include <limits>
+
+
+// ==========================================================
+// LICENSE SESSION THREAD
+// ==========================================================
+//
+// This replaces the old:
+//
+//     std::thread(...).detach();
+//
+// implementation.
+//
+// The thread is owned by OfforVocalProAudioProcessor.
+//
+// The processor destructor stops the thread before the
+// processor's other members are destroyed.
+//
+// ==========================================================
+
+OfforVocalProAudioProcessor::LicenseSessionThread::
+LicenseSessionThread(
+    OfforVocalProAudioProcessor& ownerProcessor)
+    : juce::Thread("OFFOR Vocal Pro License"),
+      owner(ownerProcessor)
+{
+}
+
+
+// ==========================================================
+// LICENSE SESSION THREAD - RUN
+// ==========================================================
+
+void
+OfforVocalProAudioProcessor::LicenseSessionThread::
+run()
+{
+    // ======================================================
+    // REGISTER INSTALLATION
+    // ======================================================
+    //
+    // This creates the installation on the server if it
+    // does not already exist.
+    //
+    // If it already exists, the server updates the relevant
+    // installation information.
+    //
+    // LicenseManager performs the synchronous HTTP request.
+    //
+    // This code is running on the background thread,
+    // NOT the audio thread.
+    //
+    // ======================================================
+
+    const bool registered =
+        owner.licenseManager.registerInstallation();
+
+
+    // ======================================================
+    // CHECK IF THREAD WAS ASKED TO STOP
+    // ======================================================
+    //
+    // If the plugin is being destroyed while registration
+    // has completed, don't start another network operation.
+    //
+    // ======================================================
+
+    if (threadShouldExit())
+    {
+        return;
+    }
+
+
+    // ======================================================
+    // REGISTRATION FAILED
+    // ======================================================
+
+    if (!registered)
+    {
+        owner.licenseAllowed.store(false);
+
+        return;
+    }
+
+
+    // ======================================================
+    // CHECK / CONSUME ONE SESSION
+    // ======================================================
+    //
+    // /use handles:
+    //
+    //     - activated license
+    //     - free-use availability
+    //     - incrementing server freeUses
+    //
+    // Therefore DO NOT call incrementUsage() here.
+    //
+    // The server has already consumed the use.
+    //
+    // ======================================================
+
+    const bool allowed =
+        owner.licenseManager.checkUsage();
+
+
+    // ======================================================
+    // STORE RESULT FOR AUDIO THREAD
+    // ======================================================
+    //
+    // processBlock() only reads this atomic value.
+    //
+    // No GUI or network operation occurs on the audio thread.
+    //
+    // ======================================================
+
+    owner.licenseAllowed.store(allowed);
+}
+
 
 // ==========================================================
 // CONSTRUCTOR
@@ -28,16 +146,70 @@ OfforVocalProAudioProcessor()
           createParameterLayout()
       )
 {
+    // ======================================================
+    // LICENSE INITIAL STATE
+    // ======================================================
+    //
+    // If a valid activation is already stored locally,
+    // allow processing immediately.
+    //
+    // Otherwise the editor will start the server session
+    // check when createEditor() is called.
+    //
+    // ======================================================
+
+    if (licenseManager.isActivated())
+    {
+        licenseAllowed.store(true);
+    }
 }
 
 
 // ==========================================================
 // DESTRUCTOR
 // ==========================================================
+//
+// IMPORTANT:
+//
+// The license thread must NEVER be allowed to outlive
+// this AudioProcessor.
+//
+// The old detached std::thread could access:
+//
+//     this
+//
+// after the processor had already been destroyed.
+//
+// We now explicitly stop and wait for the JUCE thread.
+//
+// LicenseManager uses a network timeout, so the shutdown
+// may wait while an active HTTP request finishes.
+//
+// That is intentional: safety is more important than
+// allowing the processor to be destroyed underneath a
+// running network operation.
+//
+// ==========================================================
 
 OfforVocalProAudioProcessor::
 ~OfforVocalProAudioProcessor()
 {
+    if (licenseSessionThread != nullptr)
+    {
+        // ==================================================
+        // WAIT UNTIL THE LICENSE THREAD HAS COMPLETELY
+        // STOPPED BEFORE THIS PROCESSOR IS DESTROYED.
+        //
+        // -1 = wait indefinitely.
+        //
+        // LicenseManager has finite network timeouts, so
+        // this should not normally block for a long time.
+        // ==================================================
+
+        licenseSessionThread->stopThread(-1);
+
+        licenseSessionThread.reset();
+    }
 }
 
 
@@ -326,6 +498,7 @@ createParameterLayout()
         "Octave Down"
     };
 
+
     layout.add(
         std::make_unique<juce::AudioParameterChoice>(
             PARAM_HARMONY_VOICE1,
@@ -334,6 +507,7 @@ createParameterLayout()
             0
         )
     );
+
 
     layout.add(
         std::make_unique<juce::AudioParameterChoice>(
@@ -344,6 +518,7 @@ createParameterLayout()
         )
     );
 
+
     layout.add(
         std::make_unique<juce::AudioParameterChoice>(
             PARAM_HARMONY_VOICE3,
@@ -353,6 +528,7 @@ createParameterLayout()
         )
     );
 
+
     layout.add(
         std::make_unique<juce::AudioParameterChoice>(
             PARAM_HARMONY_VOICE4,
@@ -361,6 +537,7 @@ createParameterLayout()
             0
         )
     );
+
 
     layout.add(
         std::make_unique<juce::AudioParameterFloat>(
@@ -541,14 +718,21 @@ createParameterLayout()
 // PREPARE TO PLAY
 // ==========================================================
 
-void OfforVocalProAudioProcessor::prepareToPlay(
+void
+OfforVocalProAudioProcessor::
+prepareToPlay(
     double newSampleRate,
     int samplesPerBlock)
 {
+    currentSampleRate = newSampleRate;
+    currentBlockSize = samplesPerBlock;
+
+
     pitchDetector.prepare(
         newSampleRate,
         samplesPerBlock
     );
+
 
     pitchCorrector.prepare(
         newSampleRate,
@@ -556,11 +740,13 @@ void OfforVocalProAudioProcessor::prepareToPlay(
         2
     );
 
+
     doublerProcessor.prepare(
         newSampleRate,
         samplesPerBlock,
         2
     );
+
 
     harmonyProcessor.prepare(
         newSampleRate,
@@ -568,11 +754,13 @@ void OfforVocalProAudioProcessor::prepareToPlay(
         2
     );
 
+
     creativeFXProcessor.prepare(
         newSampleRate,
         samplesPerBlock,
         2
     );
+
 
     spaceProcessor.prepare(
         newSampleRate,
@@ -580,25 +768,33 @@ void OfforVocalProAudioProcessor::prepareToPlay(
         2
     );
 
+
     dryBuffer.setSize(
         getTotalNumInputChannels(),
         samplesPerBlock
     );
 
+
     dryBuffer.clear();
 
-    targetMidiNote.store(60.0f);
+
+    targetMidiNote.store(60.0);
+
     targetPitchClass.store(0);
 
+
     previousTargetMidiNote = 60.0;
+
     smoothedTargetMidiNote = 60.0;
 }
+
 
 // ==========================================================
 // RELEASE RESOURCES
 // ==========================================================
 
-void OfforVocalProAudioProcessor::
+void
+OfforVocalProAudioProcessor::
 releaseResources()
 {
     pitchDetector.reset();
@@ -613,6 +809,7 @@ releaseResources()
 
     spaceProcessor.reset();
 
+
     dryBuffer.setSize(
         0,
         0
@@ -624,7 +821,8 @@ releaseResources()
 // BUS LAYOUT
 // ==========================================================
 
-bool OfforVocalProAudioProcessor::
+bool
+OfforVocalProAudioProcessor::
 isBusesLayoutSupported(
     const BusesLayout& layouts) const
 {
@@ -634,6 +832,7 @@ isBusesLayoutSupported(
             0
         );
 
+
     const auto& mainOutput =
         layouts.getChannelSet(
             false,
@@ -641,11 +840,18 @@ isBusesLayoutSupported(
         );
 
 
-    if (mainInput != juce::AudioChannelSet::stereo())
+    if (mainInput !=
+        juce::AudioChannelSet::stereo())
+    {
         return false;
+    }
 
-    if (mainOutput != juce::AudioChannelSet::stereo())
+
+    if (mainOutput !=
+        juce::AudioChannelSet::stereo())
+    {
         return false;
+    }
 
 
     return true;
@@ -656,7 +862,8 @@ isBusesLayoutSupported(
 // MIDI → FREQUENCY
 // ==========================================================
 
-double OfforVocalProAudioProcessor::
+double
+OfforVocalProAudioProcessor::
 midiToFrequency(
     double midiNote)
 {
@@ -672,7 +879,8 @@ midiToFrequency(
 // SCALE MEMBERSHIP
 // ==========================================================
 
-bool OfforVocalProAudioProcessor::
+bool
+OfforVocalProAudioProcessor::
 isPitchClassInScale(
     int pitchClass,
     int key,
@@ -680,6 +888,7 @@ isPitchClassInScale(
 {
     pitchClass =
         ((pitchClass % 12) + 12) % 12;
+
 
     key =
         ((key % 12) + 12) % 12;
@@ -755,7 +964,8 @@ isPitchClassInScale(
 // FIND NEAREST SCALE PITCH CLASS
 // ==========================================================
 
-int OfforVocalProAudioProcessor::
+int
+OfforVocalProAudioProcessor::
 findNearestScalePitchClass(
     int detectedPitchClass,
     int key,
@@ -784,7 +994,7 @@ findNearestScalePitchClass(
          pitchClass < 12;
          ++pitchClass)
     {
-        if (! isPitchClassInScale(
+        if (!isPitchClassInScale(
                 pitchClass,
                 key,
                 scale))
@@ -810,8 +1020,7 @@ findNearestScalePitchClass(
 
         if (distance < bestDistance)
         {
-            bestDistance =
-                distance;
+            bestDistance = distance;
 
             bestPitchClass =
                 pitchClass;
@@ -827,7 +1036,8 @@ findNearestScalePitchClass(
 // TARGET NOTE SELECTOR
 // ==========================================================
 
-double OfforVocalProAudioProcessor::
+double
+OfforVocalProAudioProcessor::
 selectTargetMidiNote(
     double detectedMidiNote,
     int key,
@@ -881,8 +1091,10 @@ selectTargetMidiNote(
 
 
     // Search a small MIDI range around the detected note.
+    //
     // This guarantees that we choose the closest legal
     // note in the selected scale.
+
     for (int candidate = baseMidi - 12;
          candidate <= baseMidi + 12;
          ++candidate)
@@ -916,8 +1128,7 @@ selectTargetMidiNote(
 
         if (distance < bestDistance)
         {
-            bestDistance =
-                distance;
+            bestDistance = distance;
 
             bestTarget =
                 static_cast<double>(candidate);
@@ -932,12 +1143,12 @@ selectTargetMidiNote(
     );
 }
 
-
 // ==========================================================
 // PROCESS BLOCK
 // ==========================================================
 
-void OfforVocalProAudioProcessor::
+void
+OfforVocalProAudioProcessor::
 processBlock(
     juce::AudioBuffer<float>& buffer,
     juce::MidiBuffer& midiMessages)
@@ -947,8 +1158,37 @@ processBlock(
     );
 
 
+    // ======================================================
+    // LICENSE GATE
+    // ======================================================
+    //
+    // IMPORTANT:
+    //
+    // NO network calls happen here.
+    //
+    // The audio thread only reads an atomic boolean that
+    // was updated by the background license thread.
+    //
+    // While the server check is running, processing is held.
+    //
+    // Once the server approves the session, DSP starts.
+    //
+    // If the 10 free uses are exhausted, processing remains
+    // disabled until a valid license is activated.
+    //
+    // ======================================================
+
+    if (!licenseAllowed.load())
+    {
+        buffer.clear();
+
+        return;
+    }
+
+
     const int numSamples =
         buffer.getNumSamples();
+
 
     const int numChannels =
         buffer.getNumChannels();
@@ -1080,15 +1320,18 @@ processBlock(
 
     float correctionStrength = 1.0f;
 
+
     switch (mode)
     {
         case TunerMode::Natural:
             correctionStrength = 0.55f;
             break;
 
+
         case TunerMode::Modern:
             correctionStrength = 0.80f;
             break;
+
 
         case TunerMode::HardTune:
             correctionStrength = 1.0f;
@@ -1104,16 +1347,14 @@ processBlock(
     // gain so the meter represents the actual signal entering
     // Offor Vocal Pro.
     //
-    // IMPORTANT:
-    // This uses a different variable name from the INPUT
-    // parameter called "inputDb" below.
-    //
+    // ==========================================================
 
     float inputPeak = 0.0f;
 
+
     for (int channel = 0;
-        channel < buffer.getNumChannels();
-        ++channel)
+         channel < buffer.getNumChannels();
+         ++channel)
     {
         inputPeak =
             juce::jmax(
@@ -1121,19 +1362,27 @@ processBlock(
                 buffer.getMagnitude(
                     channel,
                     0,
-                    buffer.getNumSamples()));
+                    buffer.getNumSamples()
+                )
+            );
     }
+
 
     const float inputMeterDb =
         inputPeak > 0.000001f
-            ? juce::Decibels::gainToDecibels(inputPeak)
+            ? juce::Decibels::gainToDecibels(
+                inputPeak
+              )
             : -60.0f;
+
 
     inputLevelDb.store(
         juce::jlimit(
             -60.0f,
             0.0f,
-            inputMeterDb));
+            inputMeterDb
+        )
+    );
 
 
     // ======================================================
@@ -1237,26 +1486,21 @@ processBlock(
             );
 
 
-        // Base smoothing amount.
-        //
-        // Higher Smooth means a smaller movement per
-        // processing block.
-        //
-        // Even at 100%, the target can still eventually
-        // reach a new note.
-
         const double smoothingCoefficient =
             0.60
-            * (1.0 - static_cast<double>(smoothAmount))
-            + 0.08
-            * static_cast<double>(smoothAmount);
+            * (1.0 -
+               static_cast<double>(
+                   smoothAmount
+               ))
+            +
+            0.08
+            * static_cast<double>(
+                smoothAmount
+              );
 
 
         // --------------------------------------------------
         // Detect a genuine note change.
-        //
-        // We don't want smoothing to create strange
-        // intermediate targets between musical notes.
         // --------------------------------------------------
 
         const double noteDistance =
@@ -1271,6 +1515,7 @@ processBlock(
             // Large jump: move immediately to the new
             // musical region instead of slowly travelling
             // through an octave.
+
             smoothedTargetMidiNote =
                 rawTargetMidi;
         }
@@ -1281,7 +1526,8 @@ processBlock(
                     rawTargetMidi -
                     smoothedTargetMidiNote
                 )
-                * smoothingCoefficient;
+                *
+                smoothingCoefficient;
         }
 
 
@@ -1314,8 +1560,11 @@ processBlock(
             (
                 juce::roundToInt(
                     selectedTargetMidi
-                ) % 12 + 12
-            ) % 12
+                )
+                % 12
+                + 12
+            )
+            % 12
         );
     }
 
@@ -1329,27 +1578,34 @@ processBlock(
         const double detectedFrequency =
             pitchDetector.getFrequencyHz();
 
+
         const float safeFrequency =
             (
                 detectedFrequency > 0.0 &&
                 std::isfinite(detectedFrequency)
             )
-                ? static_cast<float>(detectedFrequency)
+                ? static_cast<float>(
+                    detectedFrequency
+                  )
                 : 0.0f;
+
 
         // Always run the corrector while the tuner is enabled.
         //
-        // This is important:
-        // PitchCorrector now handles the transition between
+        // PitchCorrector handles the transition between
         // corrected and uncorrected audio smoothly.
+
         pitchCorrector.processBlock(
             buffer,
             safeFrequency,
-            static_cast<float>(selectedTargetMidi),
+            static_cast<float>(
+                selectedTargetMidi
+            ),
             correctionStrength,
             retune,
             pitchDetected
         );
+
 
         // ==================================================
         // TUNER MIX
@@ -1358,27 +1614,36 @@ processBlock(
         const float processedGain =
             tunerMix;
 
+
         const float dryGain =
             1.0f - tunerMix;
 
+
         for (int channel = 0;
-            channel < numChannels;
-            ++channel)
+             channel < numChannels;
+             ++channel)
         {
             auto* processed =
-                buffer.getWritePointer(channel);
+                buffer.getWritePointer(
+                    channel
+                );
+
 
             const auto* dry =
-                dryBuffer.getReadPointer(channel);
+                dryBuffer.getReadPointer(
+                    channel
+                );
+
 
             for (int sample = 0;
-                sample < numSamples;
-                ++sample)
+                 sample < numSamples;
+                 ++sample)
             {
                 processed[sample] =
                     dry[sample] * dryGain
                     +
-                    processed[sample] * processedGain;
+                    processed[sample] *
+                        processedGain;
             }
         }
     }
@@ -1400,20 +1665,24 @@ processBlock(
             PARAM_DOUBLER_AMOUNT
         )->load();
 
+
     const float doublerDetune =
         apvts.getRawParameterValue(
             PARAM_DOUBLER_DETUNE
         )->load();
+
 
     const float doublerTiming =
         apvts.getRawParameterValue(
             PARAM_DOUBLER_TIMING
         )->load();
 
+
     const float doublerWidth =
         apvts.getRawParameterValue(
             PARAM_DOUBLER_WIDTH
         )->load();
+
 
     const float doublerMix =
         apvts.getRawParameterValue(
@@ -1435,10 +1704,9 @@ processBlock(
     }
 
 
-
-    //==============================================================
+    // ==========================================================
     // HARMONY
-    //==============================================================
+    // ==========================================================
 
     const int harmonyVoice1Choice =
         juce::roundToInt(
@@ -1447,12 +1715,14 @@ processBlock(
             )->load()
         );
 
+
     const int harmonyVoice2Choice =
         juce::roundToInt(
             apvts.getRawParameterValue(
                 PARAM_HARMONY_VOICE2
             )->load()
         );
+
 
     const int harmonyVoice3Choice =
         juce::roundToInt(
@@ -1461,6 +1731,7 @@ processBlock(
             )->load()
         );
 
+
     const int harmonyVoice4Choice =
         juce::roundToInt(
             apvts.getRawParameterValue(
@@ -1468,23 +1739,29 @@ processBlock(
             )->load()
         );
 
+
     // Harmony Mix is a 0-100 UI parameter.
     // HarmonyProcessor expects 0-1.
+
     const float harmonyMix =
         apvts.getRawParameterValue(
             PARAM_HARMONY_MIX
         )->load() / 100.0f;
+
 
     const float harmonyDetectedFrequency =
         static_cast<float>(
             pitchDetector.getFrequencyHz()
         );
 
+
     const bool harmonyPitchDetected =
         pitchDetector.isPitchDetected();
 
+
     const double harmonyDetectedMidi =
         pitchDetector.getMidiNote();
+
 
     const int harmonyKey =
         juce::roundToInt(
@@ -1493,6 +1770,7 @@ processBlock(
             )->load()
         );
 
+
     const int harmonyScale =
         juce::roundToInt(
             apvts.getRawParameterValue(
@@ -1500,44 +1778,15 @@ processBlock(
             )->load()
         );
 
-    //--------------------------------------------------------------
-    // Convert harmony choice into a diatonic scale-step distance.
-    //
-    // 3rd  = 2 scale degrees
-    // 5th  = 4 scale degrees
-    // Octave = 7 scale degrees
-    //--------------------------------------------------------------
-    // auto harmonyChoiceToScaleSteps =
-    //     [](int choice) -> int
-    // {
-    //     switch (choice)
-    //     {
-    //         case 1: return 2;    // 3rd Up
-    //         case 2: return 4;    // 5th Up
-    //         case 3: return 7;    // Octave Up
 
-    //         case 4: return -2;   // 3rd Down
-    //         case 5: return -4;   // 5th Down
-    //         case 6: return -7;   // Octave Down
-
-    //         case 0:
-    //         default:
-    //             return 0;        // Off
-    //     }
-    // };
-
-    //--------------------------------------------------------------
+    // ----------------------------------------------------------
     // Calculate a scale-aware harmony interval.
     //
-    // Scale:
-    // 0 = Chromatic
-    // 1 = Major
-    // 2 = Minor
+    // Chromatic mode retains fixed intervals.
     //
-    // For Chromatic mode we retain the existing fixed intervals.
-    //
-    // For Major/Minor, the harmony follows the selected scale.
-    //--------------------------------------------------------------
+    // Major/Minor mode follows the selected scale.
+    // ----------------------------------------------------------
+
     auto calculateScaleAwareHarmonyInterval =
         [harmonyKey, harmonyScale](
             double detectedMidi,
@@ -1549,73 +1798,112 @@ processBlock(
             return 0.0f;
         }
 
-        //==========================================================
+
+        // ======================================================
         // CHROMATIC
-        //==========================================================
+        // ======================================================
 
         if (harmonyScale == 0)
         {
             switch (choice)
             {
-                case 1: return 3.0f;
-                case 2: return 7.0f;
-                case 3: return 12.0f;
+                case 1:
+                    return 3.0f;
 
-                case 4: return -3.0f;
-                case 5: return -7.0f;
-                case 6: return -12.0f;
+                case 2:
+                    return 7.0f;
+
+                case 3:
+                    return 12.0f;
+
+                case 4:
+                    return -3.0f;
+
+                case 5:
+                    return -7.0f;
+
+                case 6:
+                    return -12.0f;
 
                 default:
                     return 0.0f;
             }
         }
 
-        //==========================================================
+
+        // ======================================================
         // SCALE DEFINITION
-        //==========================================================
+        // ======================================================
 
         static constexpr int majorScale[7] =
         {
-            0, 2, 4, 5, 7, 9, 11
+            0,
+            2,
+            4,
+            5,
+            7,
+            9,
+            11
         };
+
 
         static constexpr int minorScale[7] =
         {
-            0, 2, 3, 5, 7, 8, 10
+            0,
+            2,
+            3,
+            5,
+            7,
+            8,
+            10
         };
+
 
         const int* scaleIntervals =
             (harmonyScale == 2)
                 ? minorScale
                 : majorScale;
 
-        //==========================================================
-        // Find the nearest actual scale note to the detected note.
-        //
-        // This also handles notes that are slightly outside the
-        // selected scale.
-        //==========================================================
+
+        // ======================================================
+        // FIND NEAREST ACTUAL SCALE NOTE
+        // ======================================================
 
         const int roundedMidi =
             juce::jlimit(
                 0,
                 127,
                 juce::roundToInt(
-                    static_cast<float>(detectedMidi)
+                    static_cast<float>(
+                        detectedMidi
+                    )
                 )
             );
 
-        int nearestMidi = roundedMidi;
-        int smallestDistance = 1000;
 
-        for (int octave = -1; octave <= 10; ++octave)
+        int nearestMidi =
+            roundedMidi;
+
+
+        int smallestDistance =
+            1000;
+
+
+        for (int octave = -1;
+             octave <= 10;
+             ++octave)
         {
-            for (int degree = 0; degree < 7; ++degree)
+            for (int degree = 0;
+                 degree < 7;
+                 ++degree)
             {
                 const int candidateMidi =
                     harmonyKey
-                    + octave * 12
-                    + scaleIntervals[degree];
+                    +
+                    octave * 12
+                    +
+                    scaleIntervals[degree];
+
 
                 if (candidateMidi < 0 ||
                     candidateMidi > 127)
@@ -1623,65 +1911,112 @@ processBlock(
                     continue;
                 }
 
-                const int distance =
-                    std::abs(candidateMidi - roundedMidi);
 
-                if (distance < smallestDistance)
+                const int distance =
+                    std::abs(
+                        candidateMidi -
+                        roundedMidi
+                    );
+
+
+                if (distance <
+                    smallestDistance)
                 {
-                    smallestDistance = distance;
-                    nearestMidi = candidateMidi;
+                    smallestDistance =
+                        distance;
+
+                    nearestMidi =
+                        candidateMidi;
                 }
             }
         }
 
-        //----------------------------------------------------------
-        // Find which scale degree the source note belongs to.
-        //----------------------------------------------------------
+
+        // ======================================================
+        // FIND SOURCE SCALE DEGREE
+        // ======================================================
 
         const int sourcePitchClass =
             ((nearestMidi % 12) + 12) % 12;
 
+
         int sourceDegree = 0;
 
-        for (int degree = 0; degree < 7; ++degree)
+
+        for (int degree = 0;
+             degree < 7;
+             ++degree)
         {
             const int scalePitchClass =
-                ((harmonyKey
-                + scaleIntervals[degree]) % 12 + 12) % 12;
+                (
+                    (
+                        harmonyKey
+                        +
+                        scaleIntervals[degree]
+                    )
+                    % 12
+                    + 12
+                )
+                % 12;
 
-            if (scalePitchClass == sourcePitchClass)
+
+            if (scalePitchClass ==
+                sourcePitchClass)
             {
-                sourceDegree = degree;
+                sourceDegree =
+                    degree;
+
                 break;
             }
         }
 
-        //----------------------------------------------------------
-        // Determine how many scale steps to move.
-        //----------------------------------------------------------
+
+        // ======================================================
+        // DETERMINE SCALE STEP DISTANCE
+        // ======================================================
 
         int scaleSteps = 0;
 
+
         switch (choice)
         {
-            case 1: scaleSteps = 2;  break;   // 3rd Up
-            case 2: scaleSteps = 4;  break;   // 5th Up
-            case 3: scaleSteps = 7;  break;   // Octave Up
+            case 1:
+                scaleSteps = 2;
+                break;
 
-            case 4: scaleSteps = -2; break;   // 3rd Down
-            case 5: scaleSteps = -4; break;   // 5th Down
-            case 6: scaleSteps = -7; break;   // Octave Down
+            case 2:
+                scaleSteps = 4;
+                break;
+
+            case 3:
+                scaleSteps = 7;
+                break;
+
+            case 4:
+                scaleSteps = -2;
+                break;
+
+            case 5:
+                scaleSteps = -4;
+                break;
+
+            case 6:
+                scaleSteps = -7;
+                break;
 
             default:
                 return 0.0f;
         }
 
-        //----------------------------------------------------------
-        // Calculate destination scale degree and octave movement.
-        //----------------------------------------------------------
+
+        // ======================================================
+        // DESTINATION SCALE DEGREE
+        // ======================================================
 
         const int targetAbsoluteDegree =
-            sourceDegree + scaleSteps;
+            sourceDegree +
+            scaleSteps;
+
 
         const int octaveOffset =
             static_cast<int>(
@@ -1692,42 +2027,55 @@ processBlock(
                 )
             );
 
+
         int targetDegree =
             targetAbsoluteDegree -
             octaveOffset * 7;
 
+
         if (targetDegree < 0)
             targetDegree += 7;
 
-        //----------------------------------------------------------
-        // Build target MIDI note.
-        //----------------------------------------------------------
+
+        // ======================================================
+        // BUILD TARGET MIDI NOTE
+        // ======================================================
 
         const int sourceOctave =
             static_cast<int>(
                 std::floor(
-                    static_cast<double>(nearestMidi) / 12.0
+                    static_cast<double>(
+                        nearestMidi
+                    ) / 12.0
                 )
             );
 
+
         const int targetMidi =
             harmonyKey
-            + (sourceOctave + octaveOffset) * 12
-            + scaleIntervals[targetDegree];
+            +
+            (sourceOctave + octaveOffset) * 12
+            +
+            scaleIntervals[targetDegree];
 
-        //----------------------------------------------------------
-        // Return the actual interval from the detected note.
-        //----------------------------------------------------------
+
+        // ======================================================
+        // RETURN ACTUAL INTERVAL
+        // ======================================================
 
         return static_cast<float>(
-            static_cast<double>(targetMidi)
-            - detectedMidi
+            static_cast<double>(
+                targetMidi
+            )
+            -
+            detectedMidi
         );
     };
 
-    //--------------------------------------------------------------
-    // Calculate all four voices.
-    //--------------------------------------------------------------
+
+    // ==========================================================
+    // CALCULATE ALL FOUR VOICES
+    // ==========================================================
 
     const float harmonyVoice1 =
         calculateScaleAwareHarmonyInterval(
@@ -1735,11 +2083,13 @@ processBlock(
             harmonyVoice1Choice
         );
 
+
     const float harmonyVoice2 =
         calculateScaleAwareHarmonyInterval(
             harmonyDetectedMidi,
             harmonyVoice2Choice
         );
+
 
     const float harmonyVoice3 =
         calculateScaleAwareHarmonyInterval(
@@ -1747,15 +2097,17 @@ processBlock(
             harmonyVoice3Choice
         );
 
+
     const float harmonyVoice4 =
         calculateScaleAwareHarmonyInterval(
             harmonyDetectedMidi,
             harmonyVoice4Choice
         );
 
-    //--------------------------------------------------------------
-    // Process Harmony
-    //--------------------------------------------------------------
+
+    // ==========================================================
+    // PROCESS HARMONY
+    // ==========================================================
 
     if (harmonyMix > 0.0f &&
         harmonyPitchDetected)
@@ -1768,16 +2120,23 @@ processBlock(
             harmonyVoice4
         };
 
+
         bool hasHarmonyVoice = false;
 
-        for (const auto interval : harmonyIntervals)
+
+        for (const auto interval :
+             harmonyIntervals)
         {
-            if (std::abs(interval) > 0.01f)
+            if (std::abs(interval) >
+                0.01f)
             {
-                hasHarmonyVoice = true;
+                hasHarmonyVoice =
+                    true;
+
                 break;
             }
         }
+
 
         if (hasHarmonyVoice)
         {
@@ -1795,9 +2154,9 @@ processBlock(
     }
 
 
-    //==============================================================
+    // ==========================================================
     // CREATIVE VOCAL FX
-    //==============================================================
+    // ==========================================================
 
     const int creativeFXTypeValue =
         juce::roundToInt(
@@ -1806,27 +2165,28 @@ processBlock(
             )->load()
         );
 
+
     const float creativeFXAmount =
         apvts.getRawParameterValue(
             PARAM_FX_AMOUNT
         )->load() / 100.0f;
+
 
     const float creativeFXMix =
         apvts.getRawParameterValue(
             PARAM_FX_MIX
         )->load() / 100.0f;
 
-    //--------------------------------------------------------------
-    // Convert the APVTS integer parameter into the strongly typed
+
+    // ----------------------------------------------------------
+    // Convert APVTS integer parameter into the strongly typed
     // CreativeFXProcessor::Type enum.
-    //
-    // The parameter is stored as an integer because APVTS choice
-    // parameters use numeric values. CreativeFXProcessor itself
-    // uses its Type enum for safer processing.
-    //--------------------------------------------------------------
+    // ----------------------------------------------------------
 
     const auto creativeFXType =
-        static_cast<CreativeFXProcessor::Type>(
+        static_cast<
+            CreativeFXProcessor::Type
+        >(
             juce::jlimit(
                 0,
                 static_cast<int>(
@@ -1835,6 +2195,7 @@ processBlock(
                 creativeFXTypeValue
             )
         );
+
 
     if (creativeFXTypeValue > 0 &&
         creativeFXMix > 0.0f)
@@ -1848,13 +2209,9 @@ processBlock(
     }
 
 
-    //==============================================================
+    // ==========================================================
     // VOCAL SPACE
-    //==============================================================
-
-    // IMPORTANT:
-    // spaceType is declared only once here.
-    // The previous duplicate declaration has been removed.
+    // ==========================================================
 
     const int spaceType =
         juce::roundToInt(
@@ -1863,30 +2220,36 @@ processBlock(
             )->load()
         );
 
+
     const float spaceSize =
         apvts.getRawParameterValue(
             PARAM_SPACE_SIZE
         )->load() / 100.0f;
+
 
     const float spaceDecay =
         apvts.getRawParameterValue(
             PARAM_SPACE_DECAY
         )->load() / 100.0f;
 
+
     const float spacePreDelay =
         apvts.getRawParameterValue(
             PARAM_SPACE_PREDELAY
         )->load() / 100.0f;
+
 
     const float spaceDamping =
         apvts.getRawParameterValue(
             PARAM_SPACE_DAMPING
         )->load() / 100.0f;
 
+
     const float spaceMix =
         apvts.getRawParameterValue(
             PARAM_SPACE_MIX
         )->load() / 100.0f;
+
 
     if (spaceType > 0 &&
         spaceMix > 0.0f)
@@ -1903,14 +2266,13 @@ processBlock(
     }
 
 
-    // ======================================================
+    // ==========================================================
     // GLOBAL MIX
+    // ==========================================================
     //
     // Global mix controls the complete Vocal Pro engine.
-    // At this stage only the tuner is active, but this
-    // becomes the final production-wide wet/dry control
-    // once Doubler/Harmony/FX/Space are implemented.
-    // ======================================================
+    //
+    // ==========================================================
 
     if (globalMix < 1.0f)
     {
@@ -1927,6 +2289,7 @@ processBlock(
                     channel
                 );
 
+
             const auto* dry =
                 dryBuffer.getReadPointer(
                     channel
@@ -1938,7 +2301,8 @@ processBlock(
                  ++sample)
             {
                 processed[sample] =
-                    dry[sample] * dryGain
+                    dry[sample] *
+                        dryGain
                     +
                     processed[sample] *
                         globalMix;
@@ -1947,9 +2311,9 @@ processBlock(
     }
 
 
-    // ======================================================
+    // ==========================================================
     // OUTPUT GAIN
-    // ======================================================
+    // ==========================================================
 
     const float outputGain =
         juce::Decibels::decibelsToGain(
@@ -1962,20 +2326,21 @@ processBlock(
     );
 
 
-
     // ==========================================================
     // OUTPUT LEVEL METER
     // ==========================================================
     //
     // Measure the final signal AFTER all processing and the
-    // OUTPUT gain. This represents what leaves the plugin.
+    // OUTPUT gain.
     //
+    // ==========================================================
 
     float outputPeak = 0.0f;
 
+
     for (int channel = 0;
-        channel < buffer.getNumChannels();
-        ++channel)
+         channel < buffer.getNumChannels();
+         ++channel)
     {
         outputPeak =
             juce::jmax(
@@ -1983,28 +2348,34 @@ processBlock(
                 buffer.getMagnitude(
                     channel,
                     0,
-                    buffer.getNumSamples()));
+                    buffer.getNumSamples()
+                )
+            );
     }
+
 
     const float outputMeterDb =
         outputPeak > 0.000001f
-            ? juce::Decibels::gainToDecibels(outputPeak)
+            ? juce::Decibels::gainToDecibels(
+                outputPeak
+              )
             : -60.0f;
+
 
     outputLevelDb.store(
         juce::jlimit(
             -60.0f,
             0.0f,
-            outputMeterDb));
+            outputMeterDb
+        )
+    );
 
 
     // ======================================================
     // SAFETY
     // ======================================================
 
-    // buffer.applyGain(
-    //     1.0f
-    // );
+    // Intentionally no additional gain processing here.
 }
 
 
@@ -2133,7 +2504,7 @@ setStateInformation(
         return;
 
 
-    if (! xml->hasTagName(
+    if (!xml->hasTagName(
             apvts.state.getType()
         ))
     {
@@ -2147,7 +2518,7 @@ setStateInformation(
         );
 
 
-    if (! restoredState.isValid())
+    if (!restoredState.isValid())
         return;
 
 
@@ -2162,17 +2533,163 @@ setStateInformation(
 
     previousTargetMidiNote =
         60.0;
-        
+
+
     smoothedTargetMidiNote =
         60.0;
+
 
     targetMidiNote.store(
         60.0
     );
 
+
     targetPitchClass.store(
         0
     );
+}
+
+
+// ==========================================================
+// START LICENSE SESSION
+// ==========================================================
+//
+// IMPORTANT:
+//
+// This function DOES NOT perform the network request itself.
+//
+// It creates and starts a JUCE-managed background thread.
+//
+// The previous implementation:
+//
+//     std::thread(...).detach();
+//
+// has deliberately been removed.
+//
+// ==========================================================
+
+bool
+OfforVocalProAudioProcessor::
+startLicenseSession()
+{
+    // ======================================================
+    // PREVENT STARTING THE SAME SESSION MORE THAN ONCE
+    // ======================================================
+
+    bool expected = false;
+
+
+    if (!licenseSessionStarted.compare_exchange_strong(
+            expected,
+            true))
+    {
+        return licenseAllowed.load();
+    }
+
+
+    // ======================================================
+    // ALREADY ACTIVATED?
+    // ======================================================
+    //
+    // No free use needs to be consumed.
+    //
+    // ======================================================
+
+    if (licenseManager.isActivated())
+    {
+        licenseAllowed.store(true);
+
+        return true;
+    }
+
+
+    // ======================================================
+    // CREATE BACKGROUND LICENSE THREAD
+    // ======================================================
+    //
+    // The thread object is owned by this processor.
+    //
+    // It will be safely stopped by the processor destructor.
+    //
+    // ======================================================
+
+    licenseSessionThread =
+        std::make_unique<LicenseSessionThread>(
+            *this
+        );
+
+
+    // ======================================================
+    // START THREAD
+    // ======================================================
+    //
+    // This does NOT block the message thread.
+    //
+    // Network operations happen inside:
+    //
+    //     LicenseSessionThread::run()
+    //
+    // ======================================================
+
+    licenseSessionThread->startThread();
+
+
+    // ======================================================
+    // SERVER REQUEST IS RUNNING
+    // ======================================================
+    //
+    // Audio processing remains blocked until the background
+    // thread receives the server response and stores the
+    // result in licenseAllowed.
+    //
+    // ======================================================
+
+    return false;
+}
+
+
+// ==========================================================
+// ACTIVATE LICENSE
+// ==========================================================
+//
+// Called from the editor/message thread when the user enters
+// a purchased license key.
+//
+// The network operation is NOT performed from processBlock().
+//
+// ==========================================================
+
+bool
+OfforVocalProAudioProcessor::
+activateLicense(
+    const juce::String& licenseKey)
+{
+    const bool activated =
+        licenseManager.activate(
+            licenseKey.trim()
+        );
+
+
+    if (activated)
+    {
+        // ==================================================
+        // LICENSE IS NOW ACTIVE
+        // ==================================================
+
+        licenseAllowed.store(true);
+
+
+        // ==================================================
+        // THIS PROCESSOR INSTANCE IS NOW AUTHORIZED.
+        //
+        // Do not allow another free-use session to start.
+        // ==================================================
+
+        licenseSessionStarted.store(true);
+    }
+
+
+    return activated;
 }
 
 
@@ -2184,6 +2701,22 @@ juce::AudioProcessorEditor*
 OfforVocalProAudioProcessor::
 createEditor()
 {
+    // ======================================================
+    // START LICENSE SESSION
+    // ======================================================
+    //
+    // createEditor() normally runs on JUCE's message/UI
+    // thread.
+    //
+    // startLicenseSession() only starts the background
+    // JUCE thread. It does NOT perform synchronous HTTP
+    // work on this thread.
+    //
+    // ======================================================
+
+    startLicenseSession();
+
+
     return new OfforVocalProAudioProcessorEditor(
         *this
     );

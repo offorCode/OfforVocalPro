@@ -9,6 +9,39 @@
 #include "Audio/CreativeFXProcessor.h"
 #include "Audio/SpaceProcessor.h"
 
+// ==========================================================
+// LICENSING
+// ==========================================================
+//
+// Offor Vocal Pro uses the central OFFOR license server.
+//
+// Vocal Pro has:
+//     10 free uses
+//
+// Stem Splitter / Sampler remain independent products.
+//
+// LicenseManager communicates with:
+//
+//     /api/v1/license/register
+//     /api/v1/license/use
+//     /api/v1/license/activate
+//
+// IMPORTANT:
+//
+// We do NOT perform license checks from processBlock().
+//
+// processBlock() runs continuously on the audio thread.
+// Network operations must NEVER happen there.
+//
+// Instead, a dedicated JUCE background thread handles:
+//     1. Installation registration
+//     2. One free-use session check
+//
+// The audio thread only reads the atomic licenseAllowed flag.
+// ==========================================================
+
+#include "Licensing/LicenseManager.h"
+
 
 class OfforVocalProAudioProcessor
     : public juce::AudioProcessor
@@ -114,6 +147,120 @@ public:
     // ==========================================================
 
     juce::AudioProcessorValueTreeState apvts;
+
+
+    // ==========================================================
+    // LICENSING
+    // ==========================================================
+    //
+    // These functions allow PluginEditor to display the current
+    // license state without directly accessing LicenseManager.
+    //
+    // ==========================================================
+
+    bool isLicenseActivated() const
+    {
+        return licenseManager.isActivated();
+    }
+
+
+    int getFreeUsesRemaining() const
+    {
+        return licenseManager.getFreeUsesRemaining();
+    }
+
+
+    int getServerFreeUses() const
+    {
+        return licenseManager.getServerFreeUses();
+    }
+
+
+    int getServerFreeUsesLimit() const
+    {
+        return licenseManager.getServerFreeUsesLimit();
+    }
+
+
+    juce::String getLicenseKey() const
+    {
+        return licenseManager.getStoredLicense();
+    }
+
+
+    juce::String getInstallationId() const
+    {
+        return licenseManager.getInstallationId();
+    }
+
+    // ==========================================================
+    // LICENSE SESSION STATE
+    // ==========================================================
+    //
+    // These are read by the editor only.
+    // The actual license state remains owned by the processor.
+    //
+    // licenseSessionStarted:
+    //     false = background license check has not completed
+    //     true  = license session has started
+    //
+    // licenseAllowed:
+    //     false = processing is blocked
+    //     true  = processing is allowed
+    //
+    // ==========================================================
+
+    bool isLicenseSessionStarted() const
+    {
+        return licenseSessionStarted.load();
+    }
+
+    bool isLicenseAllowed() const
+    {
+        return licenseAllowed.load();
+    }
+
+
+    // ==========================================================
+    // START LICENSE SESSION
+    // ==========================================================
+    //
+    // This starts ONE license session.
+    //
+    // For an unactivated installation:
+    //
+    //     register installation
+    //              ↓
+    //          /use request
+    //              ↓
+    //       server consumes 1 use
+    //
+    // For an activated installation:
+    //
+    //     processing is allowed immediately
+    //
+    // IMPORTANT:
+    //
+    // This function itself does not perform network operations.
+    // The network work is performed by LicenseSessionThread.
+    //
+    // It must NOT be called from processBlock().
+    //
+    // ==========================================================
+
+    bool startLicenseSession();
+
+
+    // ==========================================================
+    // ACTIVATE LICENSE
+    // ==========================================================
+    //
+    // Called by the license/settings UI.
+    //
+    // ==========================================================
+
+    bool activateLicense(
+        const juce::String& licenseKey);
 
 
     // ==========================================================
@@ -287,13 +434,16 @@ public:
         return targetPitchClass.load();
     }
 
+
     // ==========================================================
     // LEVEL METERS
     // ==========================================================
     //
-    // These values are written by the audio thread and read by
-    // the editor timer. Atomics make this safe without using a
-    // mutex or touching GUI objects from the audio thread.
+    // Audio thread -> writes
+    // GUI timer    -> reads
+    //
+    // Atomics make this safe without using a mutex or touching
+    // GUI objects from the audio thread.
     //
 
     float getInputLevelDb() const
@@ -308,6 +458,49 @@ public:
 
 
 private:
+
+    // ==========================================================
+    // LICENSE SESSION THREAD
+    // ==========================================================
+    //
+    // IMPORTANT:
+    //
+    // The old implementation used:
+    //
+    //     std::thread(...).detach();
+    //
+    // That is unsafe because the detached thread could still
+    // access the AudioProcessor after the processor was destroyed.
+    //
+    // This JUCE Thread belongs to the processor and is stopped
+    // before the processor is destroyed.
+    //
+    // ==========================================================
+
+    class LicenseSessionThread
+        : public juce::Thread
+    {
+    public:
+
+        explicit LicenseSessionThread(
+            OfforVocalProAudioProcessor& ownerProcessor);
+
+        ~LicenseSessionThread() override = default;
+
+
+    private:
+
+        void run() override;
+
+
+        OfforVocalProAudioProcessor& owner;
+
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(
+            LicenseSessionThread
+        )
+    };
+
 
     // ==========================================================
     // SCALE TYPES
@@ -372,6 +565,38 @@ private:
 
 
     // ==========================================================
+    // LICENSING
+    // ==========================================================
+
+    //
+    // One persistent LicenseManager belongs to this plugin
+    // processor instance.
+    //
+
+    LicenseManager licenseManager;
+
+
+    // ==========================================================
+    // LICENSE BACKGROUND THREAD
+    // ==========================================================
+    //
+    // Owned by the processor.
+    //
+    // IMPORTANT:
+    //
+    // This is declared AFTER licenseManager so that during normal
+    // destruction the thread member is destroyed before the
+    // LicenseManager member.
+    //
+    // The processor destructor explicitly stops the thread first.
+    //
+    // ==========================================================
+
+    std::unique_ptr<LicenseSessionThread>
+        licenseSessionThread;
+
+
+    // ==========================================================
     // PROCESSING
     // ==========================================================
 
@@ -405,6 +630,34 @@ private:
 
 
     // ==========================================================
+    // LICENSE SESSION STATE
+    // ==========================================================
+    //
+    // This prevents accidental repeated consumption of a free
+    // use during the same plugin session.
+    //
+    // false = no usage has been consumed for this session.
+    // true  = this session has already been authorized/started.
+    //
+    // licenseAllowed:
+    //
+    // false = audio processing is blocked.
+    // true  = audio processing is allowed.
+    //
+    // ==========================================================
+
+    std::atomic<bool> licenseSessionStarted
+    {
+        false
+    };
+
+    std::atomic<bool> licenseAllowed
+    {
+        false
+    };
+
+
+    // ==========================================================
     // TARGET NOTE STATE
     // ==========================================================
 
@@ -430,8 +683,15 @@ private:
     // dB directly.
     //
 
-    std::atomic<float> inputLevelDb { -60.0f };
-    std::atomic<float> outputLevelDb { -60.0f };
+    std::atomic<float> inputLevelDb
+    {
+        -60.0f
+    };
+
+    std::atomic<float> outputLevelDb
+    {
+        -60.0f
+    };
 
 
     // ==========================================================

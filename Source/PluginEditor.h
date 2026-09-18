@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "UI/LevelMeter.h"
+#include "UI/SettingsPanel.h"
 
 //==============================================================================
 class OfforVocalProAudioProcessorEditor
@@ -106,6 +107,13 @@ private:
 
     juce::Image settingsIcon;
 
+    // SETTINGS PANEL
+    // Separate professional settings screen shown over the main plugin UI.
+    std::unique_ptr<SettingsPanel> settingsPanel;
+
+    void showSettingsPanel();
+    void hideSettingsPanel();
+
     juce::ToggleButton bypassButton;
 
     juce::Image radioTunerIcon;
@@ -148,6 +156,151 @@ private:
     juce::ValueTree stateB;
 
     bool isAActive = true;
+
+        // ==========================================================
+    // LICENSE OVERLAY
+    // ==========================================================
+    //
+    // IMPORTANT:
+    //
+    // The editor MUST remain open after the free trial is
+    // exhausted. The user needs access to this screen in order
+    // to enter their license key.
+    //
+    // When the trial is exhausted:
+    //
+    //     UI remains visible
+    //     DSP is blocked by PluginProcessor
+    //     License overlay becomes visible
+    //
+    // After successful activation:
+    //
+    //     overlay disappears
+    //     DSP becomes available again
+    //
+    // ==========================================================
+
+    class LicenseActionButton
+        : public juce::Button
+    {
+    public:
+
+        explicit LicenseActionButton(
+            const juce::String& buttonText);
+
+        void paintButton(
+            juce::Graphics& g,
+            bool shouldDrawButtonAsHighlighted,
+            bool shouldDrawButtonAsDown) override;
+
+    private:
+
+        juce::String text;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(
+            LicenseActionButton
+        )
+    };
+
+
+    class LicenseOverlay
+        : public juce::Component
+    {
+    public:
+
+        explicit LicenseOverlay(
+            OfforVocalProAudioProcessorEditor& owner);
+
+        ~LicenseOverlay() override;
+
+        void paint(
+            juce::Graphics& g) override;
+
+        void resized() override;
+
+        
+        void setActivationState(
+            bool activating,
+            const juce::String& message = {});
+
+        void clearActivationMessage();
+
+        juce::String getLicenseKey() const;
+
+        void setLicenseKey(
+            const juce::String& key);
+
+        LicenseActionButton activateButton;
+        LicenseActionButton buyButton;
+
+        juce::TextEditor licenseEditor;
+
+    private:
+
+        OfforVocalProAudioProcessorEditor& owner;
+
+        juce::Label titleLabel;
+        juce::Label messageLabel;
+        juce::Label instructionLabel;
+        juce::Label statusLabel;
+
+        bool activating = false;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(
+            LicenseOverlay
+        )
+    };
+
+
+    // The overlay is owned by the editor.
+    //
+    // It sits above the normal plugin interface and is only
+    // displayed when the trial has been exhausted.
+    std::unique_ptr<LicenseOverlay> licenseOverlay;
+
+
+    // ==========================================================
+    // LICENSE ACTIVATION THREAD
+    // ==========================================================
+
+    class LicenseActivationThread : public juce::Thread
+    {
+    public:
+
+        LicenseActivationThread(
+            OfforVocalProAudioProcessorEditor& editor,
+            const juce::String& key);
+
+        void run() override;
+
+    private:
+
+        OfforVocalProAudioProcessorEditor& owner;
+        juce::String licenseKey;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(
+            LicenseActivationThread
+        )
+    };
+
+    std::unique_ptr<LicenseActivationThread> licenseActivationThread;
+
+
+    // ==========================================================
+    // LICENSE HELPERS
+    // ==========================================================
+
+    void setupLicenseOverlay();
+
+    void updateLicenseOverlay();
+
+    void beginLicenseActivation();
+
+    void finishLicenseActivation(
+        bool success,
+        const juce::String& message);
+
+    void openLicensePurchasePage();
 
     // ==========================================================
     // PRESET / A-B HELPERS

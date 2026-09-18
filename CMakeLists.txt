@@ -69,6 +69,9 @@ target_sources(OfforVocalPro
         Source/UI/LevelMeter.cpp
         Source/UI/LevelMeter.h
 
+        Source/UI/SettingsPanel.cpp
+        Source/UI/SettingsPanel.h
+
         Source/Audio/PitchDetector.cpp
         Source/Audio/PitchDetector.h
         Source/Audio/PitchCorrector.cpp
@@ -85,6 +88,11 @@ target_sources(OfforVocalPro
 
         Source/Audio/SpaceProcessor.cpp
         Source/Audio/SpaceProcessor.h
+
+        Source/Licensing/LicenseManager.cpp
+        Source/Licensing/LicenseManager.h
+
+
 )
 
 # ==========================================================

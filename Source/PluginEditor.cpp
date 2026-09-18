@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
+#include <iostream>
 
 #include <cmath>
 
@@ -261,6 +262,614 @@ OfforVocalProAudioProcessorEditor::ModuleButton::paintButton(
         juce::Justification::centredLeft);
 }
 
+
+//==============================================================================
+// LICENSE ACTION BUTTON
+//==============================================================================
+//
+// Custom-painted licensing buttons.
+//
+// We deliberately do NOT use the default JUCE TextButton appearance.
+// These buttons are part of the commercial product's licensing screen,
+// so they use the same dark/red-orange visual language as OFFOR Vocal Pro.
+//
+//==============================================================================
+
+OfforVocalProAudioProcessorEditor::LicenseActionButton::
+LicenseActionButton(
+    const juce::String& buttonText)
+    : juce::Button(buttonText),
+      text(buttonText)
+{
+    setClickingTogglesState(false);
+
+    setWantsKeyboardFocus(false);
+
+    setMouseCursor(
+        juce::MouseCursor::PointingHandCursor);
+}
+
+
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::LicenseActionButton::
+paintButton(
+    juce::Graphics& g,
+    bool shouldDrawButtonAsHighlighted,
+    bool shouldDrawButtonAsDown)
+{
+    auto bounds =
+        getLocalBounds()
+            .toFloat()
+            .reduced(1.0f);
+
+    // ----------------------------------------------------------
+    // Button colours
+    // ----------------------------------------------------------
+
+    const auto normal =
+        juce::Colour(0xffb82127);
+
+    const auto hover =
+        juce::Colour(0xffd72f35);
+
+    const auto pressed =
+        juce::Colour(0xff8e171c);
+
+    const auto border =
+        juce::Colour(0xffff5a36);
+
+    const auto currentColour =
+        shouldDrawButtonAsDown
+            ? pressed
+            : shouldDrawButtonAsHighlighted
+                ? hover
+                : normal;
+
+    // ----------------------------------------------------------
+    // Shadow
+    // ----------------------------------------------------------
+
+    g.setColour(
+        juce::Colours::black.withAlpha(0.65f));
+
+    g.fillRoundedRectangle(
+        bounds.translated(0.0f, 3.0f),
+        7.0f);
+
+    // ----------------------------------------------------------
+    // Main body
+    // ----------------------------------------------------------
+
+    g.setColour(currentColour);
+
+    g.fillRoundedRectangle(
+        bounds,
+        7.0f);
+
+    // ----------------------------------------------------------
+    // Border
+    // ----------------------------------------------------------
+
+    g.setColour(
+        border.withAlpha(
+            shouldDrawButtonAsHighlighted
+                ? 0.9f
+                : 0.55f));
+
+    g.drawRoundedRectangle(
+        bounds,
+        7.0f,
+        1.0f);
+
+    // ----------------------------------------------------------
+    // Text
+    // ----------------------------------------------------------
+
+    g.setColour(
+        juce::Colours::white);
+
+    g.setFont(
+        juce::Font(
+            juce::FontOptions()
+                .withHeight(10.0f)
+                .withStyle("Bold")));
+
+    g.drawText(
+        text,
+        getLocalBounds(),
+        juce::Justification::centred);
+}
+
+
+//==============================================================================
+// LICENSE OVERLAY
+//==============================================================================
+
+OfforVocalProAudioProcessorEditor::LicenseOverlay::
+LicenseOverlay(
+    OfforVocalProAudioProcessorEditor& editor)
+    : owner(editor),
+      activateButton("ACTIVATE LICENSE"),
+      buyButton("BUY LICENSE")
+{
+    setOpaque(false);
+
+    // ----------------------------------------------------------
+    // TITLE
+    // ----------------------------------------------------------
+
+    titleLabel.setText(
+        "TRIAL COMPLETE",
+        juce::dontSendNotification);
+
+    titleLabel.setFont(
+        juce::Font(
+            juce::FontOptions()
+                .withHeight(22.0f)
+                .withStyle("Bold")));
+
+    titleLabel.setColour(
+        juce::Label::textColourId,
+        juce::Colour(0xfff2f3f4));
+
+    titleLabel.setJustificationType(
+        juce::Justification::centred);
+
+    addAndMakeVisible(titleLabel);
+
+    // ----------------------------------------------------------
+    // MAIN MESSAGE
+    // ----------------------------------------------------------
+
+    messageLabel.setText(
+        "You've used all 10 free sessions.",
+        juce::dontSendNotification);
+
+    messageLabel.setFont(
+        juce::Font(
+            juce::FontOptions()
+                .withHeight(12.0f)
+                .withStyle("Bold")));
+
+    messageLabel.setColour(
+        juce::Label::textColourId,
+        juce::Colour(0xffd7d9dc));
+
+    messageLabel.setJustificationType(
+        juce::Justification::centred);
+
+    addAndMakeVisible(messageLabel);
+
+    // ----------------------------------------------------------
+    // INSTRUCTION
+    // ----------------------------------------------------------
+
+    instructionLabel.setText(
+        "Activate your license to continue using Offor Vocal Pro.",
+        juce::dontSendNotification);
+
+    instructionLabel.setFont(
+        juce::Font(
+            juce::FontOptions()
+                .withHeight(10.0f)));
+
+    instructionLabel.setColour(
+        juce::Label::textColourId,
+        juce::Colour(0xff777d85));
+
+    instructionLabel.setJustificationType(
+        juce::Justification::centred);
+
+    addAndMakeVisible(instructionLabel);
+
+    // ----------------------------------------------------------
+    // LICENSE FIELD
+    // ----------------------------------------------------------
+
+    licenseEditor.setTextToShowWhenEmpty(
+        "Enter your OFFOR license key",
+        juce::Colour(0xff666b72));
+
+    licenseEditor.setFont(
+        juce::Font(
+            juce::FontOptions()
+                .withHeight(11.0f)));
+
+    licenseEditor.setColour(
+        juce::TextEditor::backgroundColourId,
+        juce::Colour(0xff08090b));
+
+    licenseEditor.setColour(
+        juce::TextEditor::textColourId,
+        juce::Colour(0xfff2f3f4));
+
+    licenseEditor.setColour(
+        juce::TextEditor::outlineColourId,
+        juce::Colour(0xff292d32));
+
+    licenseEditor.setColour(
+        juce::TextEditor::focusedOutlineColourId,
+        juce::Colour(0xffd72f35));
+
+    licenseEditor.setColour(
+        juce::TextEditor::highlightColourId,
+        juce::Colour(0xff7e1c21));
+
+    licenseEditor.setBorder(
+        juce::BorderSize<int>(1));
+
+    licenseEditor.setJustification(
+        juce::Justification::centredLeft);
+
+    licenseEditor.setSelectAllWhenFocused(true);
+
+    addAndMakeVisible(licenseEditor);
+
+    // ----------------------------------------------------------
+    // STATUS
+    // ----------------------------------------------------------
+
+    statusLabel.setFont(
+        juce::Font(
+            juce::FontOptions()
+                .withHeight(9.0f)
+                .withStyle("Bold")));
+
+    statusLabel.setColour(
+        juce::Label::textColourId,
+        juce::Colour(0xff777d85));
+
+    statusLabel.setJustificationType(
+        juce::Justification::centred);
+
+    statusLabel.setVisible(false);
+
+    addAndMakeVisible(statusLabel);
+
+    // ----------------------------------------------------------
+    // BUTTONS
+    // ----------------------------------------------------------
+
+    addAndMakeVisible(
+        activateButton);
+
+    addAndMakeVisible(
+        buyButton);
+
+    activateButton.onClick =
+        [this]
+        {
+            owner.beginLicenseActivation();
+        };
+
+    buyButton.onClick =
+        [this]
+        {
+            owner.openLicensePurchasePage();
+        };
+}
+
+
+//==============================================================================
+
+OfforVocalProAudioProcessorEditor::LicenseOverlay::
+~LicenseOverlay()
+{
+}
+
+
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::LicenseOverlay::
+paint(
+    juce::Graphics& g)
+{
+    auto area =
+        getLocalBounds().toFloat();
+
+    // ----------------------------------------------------------
+    // Darkened background
+    // ----------------------------------------------------------
+
+    g.setColour(
+        juce::Colours::black.withAlpha(0.78f));
+
+    g.fillRect(area);
+
+    // ----------------------------------------------------------
+    // Main licensing card
+    // ----------------------------------------------------------
+
+    auto card =
+        area.reduced(
+            juce::jmin(
+                area.getWidth() * 0.12f,
+                area.getHeight() * 0.13f));
+
+    g.setColour(
+        juce::Colour(0xff101216));
+
+    g.fillRoundedRectangle(
+        card,
+        14.0f);
+
+    // ----------------------------------------------------------
+    // Card border
+    // ----------------------------------------------------------
+
+    g.setColour(
+        juce::Colour(0xff34383e));
+
+    g.drawRoundedRectangle(
+        card,
+        14.0f,
+        1.0f);
+
+    // ----------------------------------------------------------
+    // Accent line
+    // ----------------------------------------------------------
+
+    auto accentLine =
+        card.withX(
+                card.getX() + 30.0f)
+            .withWidth(
+                card.getWidth() - 60.0f)
+            .withHeight(3.0f)
+            .withY(
+                card.getY() + 22.0f);
+
+    g.setColour(
+        juce::Colour(0xffd72f35));
+
+    g.fillRoundedRectangle(
+        accentLine,
+        1.5f);
+
+    // ----------------------------------------------------------
+    // Small lock / license indicator
+    // ----------------------------------------------------------
+
+    const float iconSize = 34.0f;
+
+    auto iconBounds =
+        juce::Rectangle<float>(
+            card.getCentreX() - iconSize * 0.5f,
+            card.getY() + 45.0f,
+            iconSize,
+            iconSize);
+
+    g.setColour(
+        juce::Colour(0xff191c20));
+
+    g.fillEllipse(iconBounds);
+
+    g.setColour(
+        juce::Colour(0xffff5a36));
+
+    g.drawEllipse(
+        iconBounds,
+        1.2f);
+
+    // Simple keyhole symbol.
+    g.fillEllipse(
+        iconBounds.getCentreX() - 3.0f,
+        iconBounds.getCentreY() - 5.0f,
+        6.0f,
+        6.0f);
+
+    g.fillRoundedRectangle(
+        iconBounds.getCentreX() - 2.0f,
+        iconBounds.getCentreY(),
+        4.0f,
+        8.0f,
+        1.5f);
+}
+
+
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::LicenseOverlay::
+resized()
+{
+    auto area =
+        getLocalBounds();
+
+    const int cardWidth =
+        juce::jmin(
+            520,
+            area.getWidth() - 80);
+
+    const int cardHeight =
+        juce::jmin(
+            350,
+            area.getHeight() - 50);
+
+    const int x =
+        area.getCentreX()
+        - cardWidth / 2;
+
+    const int y =
+        area.getCentreY()
+        - cardHeight / 2;
+
+    auto card =
+        juce::Rectangle<int>(
+            x,
+            y,
+            cardWidth,
+            cardHeight);
+
+    titleLabel.setBounds(
+        card.getX() + 30,
+        card.getY() + 88,
+        card.getWidth() - 60,
+        32);
+
+    messageLabel.setBounds(
+        card.getX() + 30,
+        card.getY() + 130,
+        card.getWidth() - 60,
+        24);
+
+    instructionLabel.setBounds(
+        card.getX() + 30,
+        card.getY() + 157,
+        card.getWidth() - 60,
+        24);
+
+    licenseEditor.setBounds(
+        card.getX() + 55,
+        card.getY() + 200,
+        card.getWidth() - 110,
+        38);
+
+    activateButton.setBounds(
+        card.getCentreX() - 155,
+        card.getY() + 253,
+        145,
+        40);
+
+    buyButton.setBounds(
+        card.getCentreX() + 10,
+        card.getY() + 253,
+        145,
+        40);
+
+    statusLabel.setBounds(
+        card.getX() + 35,
+        card.getY() + 300,
+        card.getWidth() - 70,
+        22);
+}
+
+
+//====================================================
+//==========================
+
+void
+OfforVocalProAudioProcessorEditor::LicenseOverlay::
+setActivationState(
+    bool newActivating,
+    const juce::String& message)
+{
+    activating = newActivating;
+
+    activateButton.setEnabled(
+        !activating);
+
+    buyButton.setEnabled(
+        !activating);
+
+    licenseEditor.setEnabled(
+        !activating);
+
+    if (activating)
+    {
+        statusLabel.setVisible(true);
+
+        statusLabel.setColour(
+            juce::Label::textColourId,
+            juce::Colour(0xffff9a55));
+
+        statusLabel.setText(
+            "ACTIVATING LICENSE...",
+            juce::dontSendNotification);
+    }
+    else if (message.isNotEmpty())
+    {
+        statusLabel.setVisible(true);
+
+        statusLabel.setColour(
+            juce::Label::textColourId,
+            juce::Colour(0xffff5a55));
+
+        statusLabel.setText(
+            message,
+            juce::dontSendNotification);
+    }
+    else
+    {
+        statusLabel.setVisible(false);
+    }
+
+    repaint();
+}
+
+
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::LicenseOverlay::
+clearActivationMessage()
+{
+    statusLabel.setVisible(false);
+
+    repaint();
+}
+
+
+//==============================================================================
+
+juce::String
+OfforVocalProAudioProcessorEditor::LicenseOverlay::
+getLicenseKey() const
+{
+    return licenseEditor.getText()
+        .trim();
+}
+
+
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::LicenseOverlay::
+setLicenseKey(
+    const juce::String& key)
+{
+    licenseEditor.setText(
+        key,
+        false);
+}
+
+// ==========================================================
+// LICENSE ACTIVATION THREAD
+// ==========================================================
+
+OfforVocalProAudioProcessorEditor::LicenseActivationThread::LicenseActivationThread(
+    OfforVocalProAudioProcessorEditor& editor,
+    const juce::String& key)
+    : juce::Thread("OFFOR License Activation"),
+      owner(editor),
+      licenseKey(key)
+{
+}
+
+void OfforVocalProAudioProcessorEditor::LicenseActivationThread::run()
+{
+    const bool success =
+        owner.audioProcessor.activateLicense(licenseKey);
+
+    juce::MessageManager::callAsync(
+        [safeOwner = juce::Component::SafePointer<
+            OfforVocalProAudioProcessorEditor>(&owner),
+         success]()
+        {
+            if (safeOwner != nullptr)
+            {
+                safeOwner->finishLicenseActivation(
+                    success,
+                    success
+                        ? "License activated successfully."
+                        : "License activation failed. Please check your license key."
+                );
+            }
+        });
+}
+
 //==============================================================================
 // CONSTRUCTOR
 //==============================================================================
@@ -364,19 +973,50 @@ OfforVocalProAudioProcessorEditor(
             0.0f);
     }
 
+    // ==========================================================
+    // SETTINGS PANEL
+    // ==========================================================
+
+    // Create the separate settings screen.
+    settingsPanel = std::make_unique<SettingsPanel>();
+
+    // Add it above the main plugin UI.
+    addAndMakeVisible(*settingsPanel);
+
+    // Start hidden. The Settings icon will open it.
+    settingsPanel->setVisible(false);
+
+    // Settings panel close button.
+    settingsPanel->onClose = [this]()
+    {
+        hideSettingsPanel();
+    };
+
+    // Existing Settings icon opens/closes the panel.
+    settingsButton.onClick = [this]()
+    {
+        if (settingsPanel == nullptr)
+            return;
+
+        if (settingsPanel->isVisible())
+            hideSettingsPanel();
+        else
+            showSettingsPanel();
+    };
+
     // ----------------------------------------------------------
     // SETTINGS action.
     // ----------------------------------------------------------
 
-    settingsButton.onClick =
-        [this]
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::InfoIcon,
-                "OFFOR Vocal Pro",
-                "Settings panel will be available here.",
-                "OK");
-        };
+    // settingsButton.onClick =
+    //     [this]
+    //     {
+    //         juce::AlertWindow::showMessageBoxAsync(
+    //             juce::AlertWindow::InfoIcon,
+    //             "OFFOR Vocal Pro",
+    //             "Settings panel will be available here.",
+    //             "OK");
+    //     };
 
     addAndMakeVisible(settingsButton);
 
@@ -1209,6 +1849,19 @@ OfforVocalProAudioProcessorEditor(
 
     setupPresetControls();
 
+
+    // ==========================================================
+    // LICENSE OVERLAY
+    // ==========================================================
+    //
+    // The overlay starts hidden.
+    //
+    // timerCallback() will display it when the server reports
+    // that all free sessions have been consumed.
+    //
+
+    setupLicenseOverlay();
+
     // ----------------------------------------------------------
     // INITIAL A/B STATES
     // ----------------------------------------------------------
@@ -1238,6 +1891,43 @@ OfforVocalProAudioProcessorEditor(
     startTimerHz(20);
 }
 
+
+// ==========================================================
+// SETTINGS PANEL - SHOW
+// ==========================================================
+
+void OfforVocalProAudioProcessorEditor::showSettingsPanel()
+{
+    if (settingsPanel == nullptr)
+        return;
+
+    // Make sure it covers the complete plugin window.
+    settingsPanel->setBounds(getLocalBounds());
+
+    // Show it above everything else.
+    settingsPanel->setVisible(true);
+    settingsPanel->toFront(true);
+
+    // Refresh its layout.
+    settingsPanel->resized();
+    settingsPanel->repaint();
+}
+
+
+// ==========================================================
+// SETTINGS PANEL - HIDE
+// ==========================================================
+
+void OfforVocalProAudioProcessorEditor::hideSettingsPanel()
+{
+    if (settingsPanel == nullptr)
+        return;
+
+    settingsPanel->setVisible(false);
+
+    // Return keyboard/mouse focus to the main plugin.
+    grabKeyboardFocus();
+}
 
 //==============================================================================
 // PRESET CONTROLS
@@ -1370,6 +2060,37 @@ OfforVocalProAudioProcessorEditor::setupPresetControls()
         bButton);
 
     updateABButtonStates();
+}
+
+
+//==============================================================================
+// LICENSE OVERLAY SETUP
+//==============================================================================
+
+void OfforVocalProAudioProcessorEditor::setupLicenseOverlay()
+{
+    licenseOverlay =
+        std::make_unique<LicenseOverlay>(*this);
+
+    addAndMakeVisible(*licenseOverlay);
+
+    // ==========================================================
+    // LICENSE OVERLAY
+    // ==========================================================
+    // Give the overlay the full editor size immediately.
+    // This is important because the overlay is supposed to cover
+    // the entire plugin window.
+    licenseOverlay->setBounds(getLocalBounds());
+
+    // Keep the overlay above all other UI components.
+    licenseOverlay->setAlwaysOnTop(true);
+
+    // Start hidden.
+    // updateLicenseOverlay() will show it when the trial is used up.
+    licenseOverlay->setVisible(false);
+
+    // Force it to the very front of the editor component stack.
+    licenseOverlay->toFront(true);
 }
 
 //==============================================================================
@@ -1996,6 +2717,19 @@ OfforVocalProAudioProcessorEditor::
 ~OfforVocalProAudioProcessorEditor()
 {
     stopTimer();
+
+    // ----------------------------------------------------------
+    // Stop license activation before destroying the editor.
+    // ----------------------------------------------------------
+
+    if (licenseActivationThread != nullptr)
+    {
+        licenseActivationThread->stopThread(-1);
+
+        licenseActivationThread.reset();
+    }
+
+    presetFileChooser.reset();
 }
 
 //==============================================================================
@@ -3119,6 +3853,33 @@ OfforVocalProAudioProcessorEditor::resized()
         metersY,
         meterWidth,
         meterHeight);
+
+     // ==========================================================
+    // LICENSE OVERLAY
+    // ==========================================================
+    // The overlay must always cover the complete editor.
+    // Keep this at the END of resized().
+    if (licenseOverlay != nullptr)
+    {
+        licenseOverlay->setBounds(getLocalBounds());
+
+        // Make absolutely sure it stays above the plugin UI.
+        licenseOverlay->toFront(true);
+    }
+
+    // ==========================================================
+    // SETTINGS PANEL
+    // ==========================================================
+    // Keep the settings screen exactly the same size as the
+    // plugin editor and above all other components.
+    if (settingsPanel != nullptr)
+    {
+        settingsPanel->setBounds(getLocalBounds());
+
+        if (settingsPanel->isVisible())
+            settingsPanel->toFront(true);
+    }
+
 }
 
 //==============================================================================
@@ -3807,7 +4568,26 @@ OfforVocalProAudioProcessorEditor::drawModuleHeader(
 }
 
 //==============================================================================
-// PITCH METER
+// FUNCTIONAL PITCH VISUALIZER
+//==============================================================================
+//
+// This is the visual pitch accuracy display used by the TUNER.
+//
+// The horizontal position of the orange indicator represents
+// the detected pitch error:
+//
+//     LEFT  = FLAT
+//     CENTER = IN TUNE
+//     RIGHT = SHARP
+//
+// The actual pitch information comes from:
+//
+//     audioProcessor.getDetectedCents()
+//
+// The GUI does not calculate pitch itself.
+// It only visualizes the pitch data already produced by
+// the processor.
+//
 //==============================================================================
 
 void
@@ -3815,8 +4595,23 @@ OfforVocalProAudioProcessorEditor::drawPitchMeter(
     juce::Graphics& g,
     juce::Rectangle<int> bounds)
 {
+    // ==========================================================
+    // GET CURRENT PITCH INFORMATION
+    // ==========================================================
+
+    const bool hasPitch =
+        audioProcessor.hasDetectedPitch();
+
+    const double cents =
+        audioProcessor.getDetectedCents();
+
+    // ==========================================================
+    // BASIC GEOMETRY
+    // ==========================================================
+
     const float centreX =
-        bounds.getCentreX();
+        static_cast<float>(
+            bounds.getCentreX());
 
     const float centreY =
         static_cast<float>(
@@ -3827,8 +4622,27 @@ OfforVocalProAudioProcessorEditor::drawPitchMeter(
             bounds.getWidth() * 0.28f,
             bounds.getHeight() * 0.48f);
 
-    g.setColour(
-        displayColour);
+    // ==========================================================
+    // COLORS
+    // ==========================================================
+
+    const auto background =
+        displayColour;
+
+    const auto border =
+        borderColour;
+
+    const auto accent =
+        accentColour;
+
+    const auto inactive =
+        mutedColour;
+
+    // ==========================================================
+    // MAIN CIRCLE
+    // ==========================================================
+
+    g.setColour(background);
 
     g.fillEllipse(
         centreX - radius,
@@ -3836,8 +4650,7 @@ OfforVocalProAudioProcessorEditor::drawPitchMeter(
         radius * 2.0f,
         radius * 2.0f);
 
-    g.setColour(
-        borderColour);
+    g.setColour(border);
 
     g.drawEllipse(
         centreX - radius,
@@ -3846,42 +4659,235 @@ OfforVocalProAudioProcessorEditor::drawPitchMeter(
         radius * 2.0f,
         2.0f);
 
-    g.setColour(
-        accentColour);
+    // ==========================================================
+    // PITCH RANGE
+    // ==========================================================
+    //
+    // We visualize approximately -50 to +50 cents.
+    //
+    // Anything beyond this range is clamped to the edge.
+    //
 
-    g.fillEllipse(
-        centreX - 4.0f,
-        centreY - 4.0f,
-        8.0f,
-        8.0f);
+    const double clampedCents =
+        juce::jlimit(
+            -50.0,
+            50.0,
+            cents);
+
+    const float normalized =
+        static_cast<float>(
+            (clampedCents + 50.0) / 100.0);
+
+    // ==========================================================
+    // CENTER AXIS
+    // ==========================================================
+    //
+    // This represents perfect pitch.
+    //
 
     g.setColour(
-        mutedColour);
+        border.withAlpha(0.9f));
 
     g.drawLine(
         centreX - radius * 0.72f,
         centreY,
         centreX + radius * 0.72f,
         centreY,
-        1.0f);
+        1.5f);
 
-    g.setColour(
-        borderColour);
+    // ==========================================================
+    // PITCH TICKS
+    // ==========================================================
 
     for (int i = -4; i <= 4; ++i)
     {
-        const float x =
+        const float tickX =
             centreX
             + (static_cast<float>(i) / 4.0f)
               * radius * 0.72f;
 
+        const float tickHeight =
+            (i == 0)
+                ? 10.0f
+                : 6.0f;
+
+        g.setColour(
+            i == 0
+                ? accent
+                : border);
+
         g.drawLine(
-            x,
-            centreY - 6.0f,
-            x,
-            centreY + 6.0f,
-            1.0f);
+            tickX,
+            centreY - tickHeight,
+            tickX,
+            centreY + tickHeight,
+            i == 0 ? 2.0f : 1.0f);
     }
+
+    // ==========================================================
+    // FLAT / SHARP LABELS
+    // ==========================================================
+
+    g.setFont(
+        juce::Font(
+            juce::FontOptions()
+                .withHeight(8.0f)
+                .withStyle("Bold")));
+
+    g.setColour(
+        inactive.withAlpha(0.8f));
+
+    g.drawText(
+        "FLAT",
+        static_cast<int>(
+            centreX - radius * 0.82f),
+        static_cast<int>(
+            centreY + radius * 0.48f),
+        45,
+        14,
+        juce::Justification::centred);
+
+    g.drawText(
+        "SHARP",
+        static_cast<int>(
+            centreX + radius * 0.40f),
+        static_cast<int>(
+            centreY + radius * 0.48f),
+        45,
+        14,
+        juce::Justification::centred);
+
+    // ==========================================================
+    // NO PITCH
+    // ==========================================================
+    //
+    // When there is no detected vocal, show a neutral center
+    // indicator instead of pretending that the signal is in tune.
+    //
+
+    if (!hasPitch)
+    {
+        g.setColour(
+            inactive.withAlpha(0.55f));
+
+        g.fillEllipse(
+            centreX - 4.0f,
+            centreY - 4.0f,
+            8.0f,
+            8.0f);
+
+        return;
+    }
+
+    // ==========================================================
+    // CALCULATE INDICATOR POSITION
+    // ==========================================================
+
+    const float usableWidth =
+        radius * 1.44f;
+
+    const float indicatorX =
+        centreX
+        - usableWidth * 0.5f
+        + normalized * usableWidth;
+
+    // ==========================================================
+    // TUNING QUALITY
+    // ==========================================================
+    //
+    // Determine how close the singer is to perfect pitch.
+    //
+
+    const double absoluteCents =
+        std::abs(cents);
+
+    const bool veryClose =
+        absoluteCents <= 5.0;
+
+    const bool close =
+        absoluteCents <= 15.0;
+
+    juce::Colour indicatorColour;
+
+    if (veryClose)
+    {
+        // Excellent tuning.
+        indicatorColour =
+            juce::Colour(0xff55ff9a);
+    }
+    else if (close)
+    {
+        // Acceptable tuning.
+        indicatorColour =
+            accent;
+    }
+    else
+    {
+        // Clearly flat or sharp.
+        indicatorColour =
+            juce::Colour(0xffff5a36);
+    }
+
+    // ==========================================================
+    // INDICATOR GLOW
+    // ==========================================================
+
+    const float glowRadius =
+        veryClose ? 10.0f : 7.0f;
+
+    g.setColour(
+        indicatorColour.withAlpha(0.12f));
+
+    g.fillEllipse(
+        indicatorX - glowRadius,
+        centreY - glowRadius,
+        glowRadius * 2.0f,
+        glowRadius * 2.0f);
+
+    // ==========================================================
+    // INDICATOR LINE
+    // ==========================================================
+
+    g.setColour(
+        indicatorColour.withAlpha(0.75f));
+
+    g.drawLine(
+        indicatorX,
+        centreY - radius * 0.35f,
+        indicatorX,
+        centreY + radius * 0.35f,
+        2.0f);
+
+    // ==========================================================
+    // MAIN INDICATOR
+    // ==========================================================
+
+    g.setColour(
+        indicatorColour);
+
+    g.fillEllipse(
+        indicatorX - 5.0f,
+        centreY - 5.0f,
+        10.0f,
+        10.0f);
+
+    // ==========================================================
+    // CENTER TARGET
+    // ==========================================================
+    //
+    // Keep the perfect-pitch target visible underneath the
+    // moving indicator.
+    //
+
+    g.setColour(
+        accent.withAlpha(0.35f));
+
+    g.drawEllipse(
+        centreX - 7.0f,
+        centreY - 7.0f,
+        14.0f,
+        14.0f,
+        1.5f);
 }
 
 //==============================================================================
@@ -4100,6 +5106,8 @@ populateSpaceComboBox()
     }
 }
 
+
+
 //==============================================================================
 // TIMER
 //==============================================================================
@@ -4108,6 +5116,18 @@ void
 OfforVocalProAudioProcessorEditor::
 timerCallback()
 {
+       // ==========================================================
+    // LICENSE STATUS
+    // ==========================================================
+    //
+    // Always check licensing first.
+    //
+    // This allows the editor to remain open after the trial is
+    // exhausted while displaying the activation screen.
+    //
+
+    updateLicenseOverlay();
+
     // ==========================================================
     // LEVEL METERS
     // ==========================================================
@@ -4243,6 +5263,219 @@ timerCallback()
 
     repaint();
 }
+
+
+
+//==============================================================================
+// UPDATE LICENSE OVERLAY
+//==============================================================================
+//
+// This function determines whether the trial-complete screen
+// should be visible.
+//
+// IMPORTANT:
+//
+// We do NOT use only getFreeUsesRemaining() here because that
+// value has local fallback behaviour.
+//
+// We specifically wait until the licensing session has started
+// and the server has reported the actual server-side usage.
+//
+//==============================================================================
+
+
+
+// ==========================================================
+// UPDATE LICENSE OVERLAY
+// ==========================================================
+
+void OfforVocalProAudioProcessorEditor::updateLicenseOverlay()
+{
+    if (licenseOverlay == nullptr)
+        return;
+
+    // ==========================================================
+    // LICENSE ALREADY ACTIVATED
+    // ==========================================================
+    if (audioProcessor.isLicenseActivated())
+    {
+        licenseOverlay->setVisible(false);
+        return;
+    }
+
+    // ==========================================================
+    // LICENSE SESSION HAS NOT FINISHED INITIALIZING
+    // ==========================================================
+    if (!audioProcessor.isLicenseSessionStarted())
+    {
+        licenseOverlay->setVisible(false);
+        return;
+    }
+
+    // ==========================================================
+    // CHECK SERVER TRIAL USAGE
+    // ==========================================================
+    const int uses =
+        audioProcessor.getServerFreeUses();
+
+    const int limit =
+        audioProcessor.getServerFreeUsesLimit();
+
+    // ==========================================================
+    // TRIAL EXHAUSTED
+    // ==========================================================
+    if (limit > 0 && uses >= limit)
+    {
+        // Make sure it covers the entire editor.
+        licenseOverlay->setBounds(getLocalBounds());
+
+        // Show it.
+        licenseOverlay->setVisible(true);
+
+        // Put it above every other component.
+        licenseOverlay->toFront(true);
+
+        // Force the overlay to redraw.
+        licenseOverlay->repaint();
+
+        return;
+    }
+
+    // ==========================================================
+    // TRIAL STILL AVAILABLE
+    // ==========================================================
+    licenseOverlay->setVisible(false);
+}
+
+
+
+//==============================================================================
+// BEGIN LICENSE ACTIVATION
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::
+beginLicenseActivation()
+{
+    if (licenseOverlay == nullptr)
+        return;
+
+    const juce::String key =
+        licenseOverlay->getLicenseKey();
+
+    if (key.isEmpty())
+    {
+        licenseOverlay->setActivationState(
+            false,
+            "Please enter your license key.");
+
+        return;
+    }
+
+    // ----------------------------------------------------------
+    // Prevent two activation requests at the same time.
+    // ----------------------------------------------------------
+
+    if (licenseActivationThread != nullptr &&
+        licenseActivationThread->isThreadRunning())
+    {
+        return;
+    }
+
+    // ----------------------------------------------------------
+    // Show activation state immediately.
+    // ----------------------------------------------------------
+
+    licenseOverlay->setActivationState(
+        true);
+
+    // ----------------------------------------------------------
+    // Network activation happens away from the message thread.
+    // ----------------------------------------------------------
+
+    licenseActivationThread =
+        std::make_unique<LicenseActivationThread>(
+            *this,
+            key);
+
+    licenseActivationThread->startThread();
+}
+
+
+//==============================================================================
+// FINISH LICENSE ACTIVATION
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::
+finishLicenseActivation(
+    bool success,
+    const juce::String& message)
+{
+    // ----------------------------------------------------------
+    // Thread has completed.
+    // ----------------------------------------------------------
+
+    if (licenseActivationThread != nullptr)
+    {
+        licenseActivationThread->stopThread(
+            0);
+
+        licenseActivationThread.reset();
+    }
+
+    // ----------------------------------------------------------
+    // Successful activation.
+    // ----------------------------------------------------------
+
+    if (success)
+    {
+        if (licenseOverlay != nullptr)
+        {
+            licenseOverlay->setVisible(false);
+        }
+
+        repaint();
+
+        return;
+    }
+
+    // ----------------------------------------------------------
+    // Failed activation.
+    // ----------------------------------------------------------
+
+    if (licenseOverlay != nullptr)
+    {
+        licenseOverlay->setActivationState(
+            false,
+            message);
+    }
+}
+
+//==============================================================================
+// OPEN LICENSE PURCHASE PAGE
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::
+openLicensePurchasePage()
+{
+    // ==========================================================
+    // OFFOR VOCAL PRO PURCHASE URL
+    // ==========================================================
+    //
+    // TODO:
+    // Replace this with the FINAL Offor Vocal Pro checkout URL
+    // once your product checkout page is ready.
+    //
+    // Do not forget to replace this before release.
+    //
+    const juce::URL purchaseURL(
+        "https://ko-fi.com/s/0bda33ea5c");
+
+    purchaseURL.launchInDefaultBrowser();
+}
+
 
 
 //==============================================================================
