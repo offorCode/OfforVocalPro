@@ -2,41 +2,65 @@
 
 #include <JuceHeader.h>
 
+#include "ThemeManager.h"
+#include "ThemeColorPanel.h"
+
+#include "FeedbackPanel.h"
+
 //==============================================================================
 // OFFOR VOCAL PRO - SETTINGS PANEL
 //
-// This component is intentionally kept separate from PluginEditor.
+// SettingsPanel is responsible for:
 //
-// PluginEditor should only:
-//      1. Create SettingsPanel
-//      2. Show it
-//      3. Hide it
+//      1. Settings UI
+//      2. Settings navigation
+//      3. Dropdowns
+//      4. Toggles
+//      5. Theme selection
+//      6. Custom theme colour editor
+//      7. Built-in User Guide
 //
-// All settings UI, navigation and page drawing lives here.
+// PluginEditor remains responsible for connecting the settings
+// callbacks to the actual processor/UI behaviour.
 //
 //==============================================================================
 
-class SettingsPanel : public juce::Component
+class SettingsPanel
+    : public juce::Component,
+      private juce::ChangeListener,
+      private juce::Timer
 {
 public:
 
     //==========================================================================
-    // Callback used by PluginEditor to close the settings screen.
-    //
-    // Example:
-    //
-    // settingsPanel->onClose = [this]()
-    // {
-    //     settingsPanel->setVisible(false);
-    // };
-    //
+    // CALLBACKS
+    //==========================================================================
+
     std::function<void()> onClose;
+
+    std::function<void(bool)> onProcessingChanged;
+
+    std::function<void(const juce::String&)> onUIScaleChanged;
+    std::function<void(const juce::String&)> onThemeChanged;
+    std::function<void(const juce::String&)> onDisplayThemeChanged;
+
+    std::function<void(const juce::String&)> onOversamplingChanged;
+    std::function<void(const juce::String&)> onProcessingQualityChanged;
+
+    std::function<void(bool)> onInputMeterChanged;
+    std::function<void(bool)> onOutputMeterChanged;
+    std::function<void(bool)> onTooltipsChanged;
+    std::function<void(const juce::String&)> onDisplayScaleChanged;
+
+    std::function<void(const juce::String&)> onCPUModeChanged;
 
     //==========================================================================
     SettingsPanel();
-    ~SettingsPanel() override = default;
+
+    ~SettingsPanel() override;
 
     //==========================================================================
+
     void paint(juce::Graphics& g) override;
     void resized() override;
 
@@ -52,22 +76,26 @@ private:
         audio,
         display,
         performance,
-        about
+        about,
+        userGuide,
+        feedback
     };
 
     Page currentPage = Page::general;
 
     //==========================================================================
-    // CUSTOM TAB BUTTON
+    // TAB BUTTON
     //==========================================================================
 
     class TabButton : public juce::Button
     {
     public:
 
-        explicit TabButton(const juce::String& text);
+        explicit TabButton(
+            const juce::String& text);
 
-        void setSelected(bool shouldBeSelected);
+        void setSelected(
+            bool shouldBeSelected);
 
         void paintButton(
             juce::Graphics& g,
@@ -82,11 +110,25 @@ private:
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TabButton)
     };
 
-    TabButton generalTab      { "GENERAL" };
-    TabButton audioTab        { "AUDIO" };
-    TabButton displayTab      { "DISPLAY" };
-    TabButton performanceTab  { "PERFORMANCE" };
-    TabButton aboutTab        { "ABOUT" };
+    TabButton generalTab     { "GENERAL" };
+    TabButton audioTab       { "AUDIO" };
+    TabButton displayTab     { "DISPLAY" };
+    TabButton performanceTab { "PERFORMANCE" };
+    TabButton aboutTab       { "ABOUT" };
+    TabButton userGuideTab   { "USER GUIDE" };
+    TabButton feedbackTab { "FEEDBACK" };
+
+    //==========================================================================
+    // FEEDBACK
+    //==========================================================================
+    //
+    // The complete feedback system lives inside FeedbackPanel.
+    //
+    // SettingsPanel only controls which page is visible.
+    //
+    //==========================================================================
+
+    std::unique_ptr<FeedbackPanel> feedbackPanel;
 
     //==========================================================================
     // CLOSE BUTTON
@@ -145,17 +187,39 @@ private:
         explicit SettingSelector(
             const juce::String& initialValue = "Default");
 
-        void setValue(const juce::String& newValue);
+        void setValue(
+            const juce::String& newValue);
+
         juce::String getValue() const;
 
-        void paint(juce::Graphics& g) override;
+        void setOptions(
+            const juce::StringArray& newOptions);
+
+        void showMenu();
+
+        void paint(
+            juce::Graphics& g) override;
+
         void resized() override;
+
+        void mouseEnter(
+            const juce::MouseEvent& event) override;
+
+        void mouseExit(
+            const juce::MouseEvent& event) override;
+
+        void mouseDown(
+            const juce::MouseEvent& event) override;
 
         std::function<void()> onClicked;
 
     private:
 
         juce::String value;
+
+        juce::StringArray options;
+
+        bool mouseOver = false;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingSelector)
     };
@@ -178,6 +242,16 @@ private:
 
     SettingSelector uiScaleSelector;
     SettingSelector themeSelector;
+
+    //==========================================================================
+    // CUSTOM THEME BUTTON
+    //==========================================================================
+
+    juce::TextButton customizeColoursButton;
+
+    std::unique_ptr<ThemeColorPanel> themeColorPanel;
+
+    bool customColoursVisible = false;
 
     //==========================================================================
     // AUDIO PAGE
@@ -251,6 +325,37 @@ private:
     juce::TextButton supportButton;
 
     //==========================================================================
+    // USER GUIDE
+    //==========================================================================
+    //
+    // The guide is intentionally implemented as a Viewport + Label.
+    //
+    // This keeps the system lightweight and avoids introducing another
+    // complex UI component into the plugin.
+    //
+    // The guide automatically scrolls using the SettingsPanel timer.
+    //
+    //==========================================================================
+    
+    juce::Label userGuideTitle;
+    juce::Label userGuideDescription;
+
+    juce::Viewport userGuideViewport;
+    juce::Label userGuideContent;
+
+    // Current automatic scroll position.
+    float userGuideScrollPosition = 0.0f;
+
+    // True while the user is interacting with the guide.
+    //
+    // Automatic scrolling pauses while the mouse is over the guide
+    // or while the user is manually scrolling.
+    bool userGuideMouseOver = false;
+
+    // Used to give the guide a small delay before auto-scroll resumes.
+    int userGuideIdleCounter = 0;
+
+    //==========================================================================
     // PAGE MANAGEMENT
     //==========================================================================
 
@@ -261,6 +366,63 @@ private:
     void setupTabs();
     void setupControls();
     void setupAboutPage();
+
+    //==========================================================================
+    // USER GUIDE
+    //==========================================================================
+
+    void setupUserGuide();
+
+    juce::String getUserGuideText() const;
+
+    void resetUserGuideScroll();
+
+    void updateUserGuideLayout();
+
+    //==========================================================================
+    // TIMER
+    //==========================================================================
+
+    void timerCallback() override;
+
+    //==========================================================================
+    // SETTINGS CALLBACKS
+    //==========================================================================
+
+    void setupSettingCallbacks();
+
+    //==========================================================================
+    // THEME
+    //==========================================================================
+
+    void setupThemeControls();
+
+    void showThemeColorPanel();
+
+    void hideThemeColorPanel();
+
+    void updateThemeColours();
+
+    void syncThemeSelectors(
+        const juce::String& theme);
+
+    //==========================================================================
+    // THEME CHANGE LISTENER
+    //==========================================================================
+
+    void changeListenerCallback(
+        juce::ChangeBroadcaster* source) override;
+
+    //==========================================================================
+    // PROCESSING QUALITY
+    //==========================================================================
+
+    void syncProcessingQualitySelectors(
+        const juce::String& quality);
+
+    //==========================================================================
+    // LABEL HELPER
+    //==========================================================================
 
     void configureLabel(
         juce::Label& label,
@@ -291,7 +453,13 @@ private:
         int width);
 
     //==========================================================================
-    // COLOURS
+    // LEGACY STATIC COLOURS
+    //==========================================================================
+    //
+    // Kept so the rest of the existing SettingsPanel code does not break.
+    //
+    // New painting code uses ThemeManager directly.
+    //
     //==========================================================================
 
     static const juce::Colour backgroundColour;
@@ -304,5 +472,6 @@ private:
     static const juce::Colour accentDarkColour;
 
     //==========================================================================
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsPanel)
 };

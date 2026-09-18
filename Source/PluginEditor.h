@@ -4,6 +4,8 @@
 #include "PluginProcessor.h"
 #include "UI/LevelMeter.h"
 #include "UI/SettingsPanel.h"
+#include "UI/ThemeManager.h"
+#include "UI/ThemeColorPanel.h"
 
 //==============================================================================
 class OfforVocalProAudioProcessorEditor
@@ -42,6 +44,29 @@ private:
     void selectModule(Module module);
 
     void updateModuleVisibility();
+
+    // ==========================================================
+    // THEME SYSTEM
+    // ==========================================================
+
+    void applyTheme();
+
+    void refreshThemeColours();
+
+    ThemeManager::Colours getThemeColours() const;
+
+    void updateThemeForChildComponents();
+
+    // ==========================================================
+    // CUSTOM THEME COLOUR PANEL
+    // ==========================================================
+    //
+    // This panel is created only when the user chooses
+    // "Custom" / "Customize Colours" from Settings.
+    //
+    // ==========================================================
+
+    std::unique_ptr<ThemeColorPanel> themeColorPanel;
 
     // ==========================================================
     // CUSTOM MODULE BUTTON
@@ -114,6 +139,143 @@ private:
     void showSettingsPanel();
     void hideSettingsPanel();
 
+        //==========================================================================
+    // SETTINGS CALLBACKS
+    //==========================================================================
+    //
+    // These functions receive events from SettingsPanel.
+    //
+    // SettingsPanel does not directly control PluginProcessor.
+    //
+    // Flow:
+    //
+    // SettingsPanel
+    //      ↓
+    // PluginEditor
+    //      ↓
+    // Processor / UI
+    //
+    //==========================================================================
+
+    void setupSettingsCallbacks();
+
+    void handleProcessingChanged(
+        bool enabled);
+
+    void handleUIScaleChanged(
+        const juce::String& scale);
+
+    void handleThemeChanged(
+        const juce::String& theme);
+
+    void handleOversamplingChanged(
+        const juce::String& mode);
+
+    void handleProcessingQualityChanged(
+        const juce::String& quality);
+
+    void handleInputMeterChanged(
+        bool visible);
+
+    void handleOutputMeterChanged(
+        bool visible);
+
+    void handleTooltipsChanged(
+        bool enabled);
+
+    void handleDisplayScaleChanged(
+        const juce::String& scale);
+
+    void handleCPUModeChanged(
+        const juce::String& mode);
+
+    //==========================================================================
+    // SETTINGS UI STATE
+    //==========================================================================
+
+    bool tooltipsEnabled = true;
+
+    // ==========================================================
+    // THEME
+    // ==========================================================
+    //
+    // ThemeManager is the single source of truth for all colours.
+    //
+    // Built-in themes:
+    //
+    // OFFOR Dark
+    // Midnight Blue
+    // Graphite
+    // Purple Studio
+    // Emerald
+    // Crimson
+    // Light
+    // Custom
+    //
+    // ==========================================================
+
+    juce::String currentTheme = "OFFOR Dark";
+
+    juce::String currentUIScale = "100%";
+
+    juce::String currentDisplayScale = "100%";
+
+    double uiScale = 1.0;
+
+    // Base/reference editor dimensions at 100%.
+    static constexpr int baseEditorWidth  = 920;
+    static constexpr int baseEditorHeight = 570;
+
+    // Convert SettingsPanel percentage text into a scale factor.
+    double getUIScaleFactor(
+        const juce::String& scale) const;
+
+    // Apply the selected scale to the editor.
+    void applyUIScale(
+        const juce::String& scale);
+
+    // ==========================================================
+    // SCALED BOUNDS HELPERS
+    // ==========================================================
+    //
+    // These convert 100%-design coordinates into actual pixels.
+    //
+    // Example:
+    //
+    //     setScaledBounds(component, 68, 11, 240, 24);
+    //
+    // At 100%:
+    //
+    //     68, 11, 240, 24
+    //
+    // At 125%:
+    //
+    //     85, 14, 300, 30
+    //
+    // ==========================================================
+
+    int scaleValue(
+        int value) const;
+
+    juce::Rectangle<int> scaledBounds(
+        int x,
+        int y,
+        int width,
+        int height) const;
+
+    void setScaledBounds(
+        juce::Component& component,
+        int x,
+        int y,
+        int width,
+        int height) const;
+
+    juce::String currentOversampling = "2X";
+
+    juce::String currentProcessingQuality = "High";
+
+    juce::String currentCPUMode = "Balanced";
+
     juce::ToggleButton bypassButton;
 
     juce::Image radioTunerIcon;
@@ -133,7 +295,15 @@ private:
     //
 
     juce::ComboBox presetComboBox;
-    juce::TextButton savePresetButton;
+    // ==========================================================
+    // PRESET MENU BUTTON
+    // ==========================================================
+    //
+    // LOAD and SAVE are intentionally hidden inside this menu.
+    // This keeps the header compact and professional.
+    //
+
+    juce::TextButton presetMenuButton;
 
     // Keeps the asynchronous JUCE FileChooser alive while
     // the user is selecting a save location.

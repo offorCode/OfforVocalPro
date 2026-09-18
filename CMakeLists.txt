@@ -72,6 +72,15 @@ target_sources(OfforVocalPro
         Source/UI/SettingsPanel.cpp
         Source/UI/SettingsPanel.h
 
+        Source/UI/ThemeManager.cpp
+        Source/UI/ThemeManager.h
+
+        Source/UI/ThemeColorPanel.cpp
+        Source/UI/ThemeColorPanel.h
+
+        Source/UI/FeedbackPanel.h
+        Source/UI/FeedbackPanel.cpp
+
         Source/Audio/PitchDetector.cpp
         Source/Audio/PitchDetector.h
         Source/Audio/PitchCorrector.cpp

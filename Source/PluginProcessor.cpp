@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "UI/ThemeManager.h"
 
 #include <limits>
 
@@ -718,74 +719,292 @@ createParameterLayout()
 // PREPARE TO PLAY
 // ==========================================================
 
-void
-OfforVocalProAudioProcessor::
-prepareToPlay(
+void OfforVocalProAudioProcessor::prepareToPlay(
     double newSampleRate,
     int samplesPerBlock)
 {
-    currentSampleRate = newSampleRate;
-    currentBlockSize = samplesPerBlock;
+    // ==========================================================
+    // HOST INFORMATION
+    // ==========================================================
 
+    currentSampleRate =
+        newSampleRate > 0.0
+            ? newSampleRate
+            : 44100.0;
+
+    currentBlockSize =
+        juce::jmax(1, samplesPerBlock);
+
+
+    // ==========================================================
+    // PITCH DETECTOR
+    // ==========================================================
+    //
+    // IMPORTANT:
+    //
+    // Pitch detection remains at the HOST sample rate.
+    //
+    // We do NOT oversample the tuner because the existing
+    // pitch-detection system is designed around the host rate.
+    //
+    // ==========================================================
 
     pitchDetector.prepare(
-        newSampleRate,
-        samplesPerBlock
-    );
+        currentSampleRate,
+        currentBlockSize);
 
+
+    // ==========================================================
+    // PITCH CORRECTOR
+    // ==========================================================
 
     pitchCorrector.prepare(
-        newSampleRate,
-        samplesPerBlock,
-        2
-    );
+        currentSampleRate,
+        currentBlockSize,
+        2);
 
 
-    doublerProcessor.prepare(
-        newSampleRate,
-        samplesPerBlock,
-        2
-    );
-
-
-    harmonyProcessor.prepare(
-        newSampleRate,
-        samplesPerBlock,
-        2
-    );
-
-
-    creativeFXProcessor.prepare(
-        newSampleRate,
-        samplesPerBlock,
-        2
-    );
-
-
-    spaceProcessor.prepare(
-        newSampleRate,
-        samplesPerBlock,
-        2
-    );
-
+    // ==========================================================
+    // DRY BUFFER
+    // ==========================================================
 
     dryBuffer.setSize(
         getTotalNumInputChannels(),
-        samplesPerBlock
-    );
-
+        currentBlockSize);
 
     dryBuffer.clear();
 
 
-    targetMidiNote.store(60.0);
+    // ==========================================================
+    // RESET TUNER STATE
+    // ==========================================================
 
+    targetMidiNote.store(60.0);
     targetPitchClass.store(0);
 
-
     previousTargetMidiNote = 60.0;
-
     smoothedTargetMidiNote = 60.0;
+
+
+    // ==========================================================
+    // RESET LEVEL METERS
+    // ==========================================================
+
+    inputLevelDb.store(-60.0f);
+    outputLevelDb.store(-60.0f);
+
+
+    // ==========================================================
+    // OVERSAMPLING ENGINE
+    // ==========================================================
+    //
+    // configureOversampling() prepares the creative DSP chain
+    // at the correct internal sample rate.
+    //
+    // Example at a 48 kHz host:
+    //
+    //     Off -> 48 kHz
+    //     2X  -> 96 kHz
+    //     4X  -> 192 kHz
+    //     8X  -> 384 kHz
+    //
+    // ==========================================================
+
+    const juce::SpinLock::ScopedLockType lock(
+        dspConfigurationLock);
+
+    configureOversampling(
+        oversamplingMode);
+
+    // ==========================================================
+    // APPLY CURRENT PROCESSING QUALITY
+    // ==========================================================
+
+    DoublerProcessor::ProcessingQuality dspQuality =
+        DoublerProcessor::ProcessingQuality::High;
+
+    if (processingQuality.equalsIgnoreCase("Low"))
+    {
+        dspQuality =
+            DoublerProcessor::ProcessingQuality::Low;
+    }
+    else if (processingQuality.equalsIgnoreCase("Medium"))
+    {
+        dspQuality =
+            DoublerProcessor::ProcessingQuality::Medium;
+    }
+    else if (processingQuality.equalsIgnoreCase("High"))
+    {
+        dspQuality =
+            DoublerProcessor::ProcessingQuality::High;
+    }
+    else if (processingQuality.equalsIgnoreCase("Ultra"))
+    {
+        dspQuality =
+            DoublerProcessor::ProcessingQuality::Ultra;
+    }
+
+    doublerProcessor.setProcessingQuality(
+        dspQuality
+    );
+
+
+    // ==========================================================
+    // APPLY CURRENT CPU MODE
+    // ==========================================================
+
+    DoublerProcessor::CPUMode dspCPUMode =
+        DoublerProcessor::CPUMode::Balanced;
+
+    if (cpuMode.equalsIgnoreCase("Low CPU"))
+    {
+        dspCPUMode =
+            DoublerProcessor::CPUMode::LowCPU;
+    }
+    else if (cpuMode.equalsIgnoreCase("Balanced"))
+    {
+        dspCPUMode =
+            DoublerProcessor::CPUMode::Balanced;
+    }
+    else if (cpuMode.equalsIgnoreCase("Performance"))
+    {
+        dspCPUMode =
+            DoublerProcessor::CPUMode::Performance;
+    }
+
+    doublerProcessor.setCPUMode(
+        dspCPUMode
+    );
+
+
+    // ==========================================================
+    // APPLY CURRENT PROCESSING QUALITY TO HARMONY
+    // ==========================================================
+
+    HarmonyProcessor::ProcessingQuality harmonyQuality =
+        HarmonyProcessor::ProcessingQuality::High;
+
+
+    if (processingQuality.equalsIgnoreCase("Low"))
+    {
+        harmonyQuality =
+            HarmonyProcessor::ProcessingQuality::Low;
+    }
+    else if (processingQuality.equalsIgnoreCase("Medium"))
+    {
+        harmonyQuality =
+            HarmonyProcessor::ProcessingQuality::Medium;
+    }
+    else if (processingQuality.equalsIgnoreCase("High"))
+    {
+        harmonyQuality =
+            HarmonyProcessor::ProcessingQuality::High;
+    }
+    else if (processingQuality.equalsIgnoreCase("Ultra"))
+    {
+        harmonyQuality =
+            HarmonyProcessor::ProcessingQuality::Ultra;
+    }
+
+
+    harmonyProcessor.setProcessingQuality(
+        harmonyQuality
+    );
+
+
+    // ==========================================================
+    // APPLY CURRENT CPU MODE TO HARMONY
+    // ==========================================================
+
+    HarmonyProcessor::CPUMode harmonyMode =
+        HarmonyProcessor::CPUMode::Balanced;
+
+
+    if (cpuMode.equalsIgnoreCase("Low CPU"))
+    {
+        harmonyMode =
+            HarmonyProcessor::CPUMode::LowCPU;
+    }
+    else if (cpuMode.equalsIgnoreCase("Balanced"))
+    {
+        harmonyMode =
+            HarmonyProcessor::CPUMode::Balanced;
+    }
+    else if (cpuMode.equalsIgnoreCase("Performance"))
+    {
+        harmonyMode =
+            HarmonyProcessor::CPUMode::Performance;
+    }
+
+
+    harmonyProcessor.setCPUMode(
+        harmonyMode
+    );
+
+
+    // ==========================================================
+    // APPLY CURRENT PROCESSING QUALITY TO CREATIVE FX
+    // ==========================================================
+
+    CreativeFXProcessor::ProcessingQuality creativeFXQuality =
+        CreativeFXProcessor::ProcessingQuality::High;
+
+
+    if (processingQuality.equalsIgnoreCase("Low"))
+    {
+        creativeFXQuality =
+            CreativeFXProcessor::ProcessingQuality::Low;
+    }
+    else if (processingQuality.equalsIgnoreCase("Medium"))
+    {
+        creativeFXQuality =
+            CreativeFXProcessor::ProcessingQuality::Medium;
+    }
+    else if (processingQuality.equalsIgnoreCase("High"))
+    {
+        creativeFXQuality =
+            CreativeFXProcessor::ProcessingQuality::High;
+    }
+    else if (processingQuality.equalsIgnoreCase("Ultra"))
+    {
+        creativeFXQuality =
+            CreativeFXProcessor::ProcessingQuality::Ultra;
+    }
+
+
+    creativeFXProcessor.setProcessingQuality(
+        creativeFXQuality
+    );
+
+
+    // ==========================================================
+    // APPLY CURRENT CPU MODE TO CREATIVE FX
+    // ==========================================================
+
+    CreativeFXProcessor::CPUMode creativeFXMode =
+        CreativeFXProcessor::CPUMode::Balanced;
+
+
+    if (cpuMode.equalsIgnoreCase("Low CPU"))
+    {
+        creativeFXMode =
+            CreativeFXProcessor::CPUMode::LowCPU;
+    }
+    else if (cpuMode.equalsIgnoreCase("Balanced"))
+    {
+        creativeFXMode =
+            CreativeFXProcessor::CPUMode::Balanced;
+    }
+    else if (cpuMode.equalsIgnoreCase("Performance"))
+    {
+        creativeFXMode =
+            CreativeFXProcessor::CPUMode::Performance;
+    }
+
+
+    creativeFXProcessor.setCPUMode(
+        creativeFXMode
+    );
 }
 
 
@@ -793,29 +1012,339 @@ prepareToPlay(
 // RELEASE RESOURCES
 // ==========================================================
 
-void
-OfforVocalProAudioProcessor::
-releaseResources()
+void OfforVocalProAudioProcessor::releaseResources()
 {
-    pitchDetector.reset();
+    // ==========================================================
+    // PROTECT DSP RECONFIGURATION
+    // ==========================================================
 
+    const juce::SpinLock::ScopedLockType lock(
+        dspConfigurationLock);
+
+
+    // ==========================================================
+    // RESET HOST-RATE DSP
+    // ==========================================================
+
+    pitchDetector.reset();
     pitchCorrector.reset();
 
+
+    // ==========================================================
+    // RESET CREATIVE DSP
+    // ==========================================================
+
     doublerProcessor.reset();
-
     harmonyProcessor.reset();
-
     creativeFXProcessor.reset();
-
     spaceProcessor.reset();
 
 
-    dryBuffer.setSize(
-        0,
-        0
-    );
+    // ==========================================================
+    // RESET OVERSAMPLER
+    // ==========================================================
+
+    if (oversampler != nullptr)
+        oversampler->reset();
+
+    oversampler.reset();
+
+
+    // ==========================================================
+    // CLEAR DRY BUFFER
+    // ==========================================================
+
+    dryBuffer.setSize(0, 0);
+
+
+    // ==========================================================
+    // REMOVE REPORTED LATENCY
+    // ==========================================================
+
+    setLatencySamples(0);
 }
 
+// ==========================================================
+// GET OVERSAMPLING FACTOR
+// ==========================================================
+//
+// Returns the actual sample-rate multiplier:
+//
+//     Off -> 1
+//     2X  -> 2
+//     4X  -> 4
+//     8X  -> 8
+//
+// ==========================================================
+
+int OfforVocalProAudioProcessor::getOversamplingFactorFromMode(
+    const juce::String& mode) const
+{
+    if (mode == "2X")
+        return 2;
+
+    if (mode == "4X")
+        return 4;
+
+    if (mode == "8X")
+        return 8;
+
+    return 1;
+}
+
+
+// ==========================================================
+// CONFIGURE OVERSAMPLING ENGINE
+// ==========================================================
+
+void OfforVocalProAudioProcessor::configureOversampling(
+    const juce::String& mode)
+{
+    // ==========================================================
+    // DETERMINE FACTOR
+    // ==========================================================
+
+    const int factor =
+        getOversamplingFactorFromMode(mode);
+
+
+    // ==========================================================
+    // OFF
+    // ==========================================================
+    //
+    // No oversampling.
+    //
+    // Creative DSP runs at the host sample rate.
+    //
+    // ==========================================================
+
+    if (factor == 1)
+    {
+        oversampler.reset();
+
+
+        // ------------------------------------------------------
+        // DOUBLER
+        // ------------------------------------------------------
+
+        doublerProcessor.prepare(
+            currentSampleRate,
+            currentBlockSize,
+            2);
+
+
+        // ------------------------------------------------------
+        // HARMONY
+        // ------------------------------------------------------
+
+        harmonyProcessor.prepare(
+            currentSampleRate,
+            currentBlockSize,
+            2);
+
+
+        // ------------------------------------------------------
+        // CREATIVE FX
+        // ------------------------------------------------------
+
+        creativeFXProcessor.prepare(
+            currentSampleRate,
+            currentBlockSize,
+            2);
+
+
+        // ------------------------------------------------------
+        // SPACE
+        // ------------------------------------------------------
+
+        spaceProcessor.prepare(
+            currentSampleRate,
+            currentBlockSize,
+            2);
+
+
+        // ------------------------------------------------------
+        // NO EXTRA LATENCY
+        // ------------------------------------------------------
+
+        setLatencySamples(0);
+
+        return;
+    }
+
+
+    // ==========================================================
+    // JUCE OVERSAMPLING STAGES
+    // ==========================================================
+    //
+    // JUCE's constructor uses:
+    //
+    //     1 stage = 2X
+    //     2 stages = 4X
+    //     3 stages = 8X
+    //
+    // ==========================================================
+
+    const int stages =
+        factor == 2
+            ? 1
+            : factor == 4
+                ? 2
+                : 3;
+
+
+    // ==========================================================
+    // CREATE OVERSAMPLER
+    // ==========================================================
+    //
+    // Polyphase IIR gives us lower latency than the FIR option.
+    //
+    // useIntegerLatency = true
+    //
+    // This makes the reported latency an integer number of
+    // host samples, which is useful for plugin host latency
+    // compensation.
+    //
+    // ==========================================================
+
+    oversampler =
+        std::make_unique<
+            juce::dsp::Oversampling<float>>(
+                2,
+                stages,
+                juce::dsp::Oversampling<float>::
+                    filterHalfBandPolyphaseIIR,
+                true,
+                true);
+
+
+    // ==========================================================
+    // PREPARE OVERSAMPLER
+    // ==========================================================
+
+    oversampler->initProcessing(
+        static_cast<size_t>(
+            currentBlockSize));
+
+    oversampler->reset();
+
+
+    // ==========================================================
+    // INTERNAL SAMPLE RATE
+    // ==========================================================
+
+    const double internalSampleRate =
+        currentSampleRate *
+        static_cast<double>(factor);
+
+
+    // ==========================================================
+    // INTERNAL BLOCK SIZE
+    // ==========================================================
+
+    const int internalBlockSize =
+        currentBlockSize * factor;
+
+
+    // ==========================================================
+    // PREPARE DOUBLER AT INTERNAL RATE
+    // ==========================================================
+
+    doublerProcessor.prepare(
+        internalSampleRate,
+        internalBlockSize,
+        2);
+
+
+    // ==========================================================
+    // PREPARE HARMONY AT INTERNAL RATE
+    // ==========================================================
+
+    harmonyProcessor.prepare(
+        internalSampleRate,
+        internalBlockSize,
+        2);
+
+
+    // ==========================================================
+    // PREPARE CREATIVE FX AT INTERNAL RATE
+    // ==========================================================
+
+    creativeFXProcessor.prepare(
+        internalSampleRate,
+        internalBlockSize,
+        2);
+
+
+    // ==========================================================
+    // PREPARE SPACE AT INTERNAL RATE
+    // ==========================================================
+
+    spaceProcessor.prepare(
+        internalSampleRate,
+        internalBlockSize,
+        2);
+
+
+    // ==========================================================
+    // REPORT OVERSAMPLING LATENCY TO THE DAW
+    // ==========================================================
+
+    const double latency =
+        oversampler->getLatencyInSamples();
+
+    setLatencySamples(
+        juce::jmax(
+            0,
+            static_cast<int>(
+                std::ceil(latency))));
+
+
+    // ==========================================================
+    // DEBUG INFORMATION
+    // ==========================================================
+
+   #if JUCE_DEBUG
+
+    DBG(
+        "==========================================");
+
+    DBG(
+        "OFFOR VOCAL PRO OVERSAMPLING");
+
+    DBG(
+        "Mode: "
+        + mode);
+
+    DBG(
+        "Host sample rate: "
+        + juce::String(currentSampleRate));
+
+    DBG(
+        "Internal sample rate: "
+        + juce::String(internalSampleRate));
+
+    DBG(
+        "Host block size: "
+        + juce::String(currentBlockSize));
+
+    DBG(
+        "Internal block size: "
+        + juce::String(internalBlockSize));
+
+    DBG(
+        "Oversampling factor: "
+        + juce::String(factor));
+
+    DBG(
+        "Latency: "
+        + juce::String(latency));
+
+    DBG(
+        "==========================================");
+
+   #endif
+}
 
 // ==========================================================
 // BUS LAYOUT
@@ -1199,6 +1728,26 @@ processBlock(
     {
         return;
     }
+
+
+    // ==========================================================
+    // SETTINGS - ENABLE PROCESSING
+    // ==========================================================
+    //
+    // This is separate from the main APVTS BYPASS parameter.
+    //
+    // BYPASS:
+    //     Plugin's normal audio bypass control.
+    //
+    // ENABLE PROCESSING:
+    //     User preference from Settings.
+    //
+    // When processing is disabled, leave the incoming audio
+    // untouched.
+    //
+
+    if (!processingEnabled.load())
+        return;
 
 
     // ======================================================
@@ -1656,33 +2205,61 @@ processBlock(
     }
 
 
-    // ======================================================
-    // DOUBLER V1
-    // ======================================================
+    
+    // ==========================================================
+    // CREATIVE DSP - OVERSAMPLED ENGINE
+    // ==========================================================
+    //
+    // IMPORTANT:
+    //
+    // Pitch detection and pitch correction have already happened
+    // at the HOST sample rate above.
+    //
+    // From this point onward:
+    //
+    //     Doubler
+    //     Harmony
+    //     Creative FX
+    //     Space
+    //
+    // run through the real oversampling engine when the user has
+    // selected 2X, 4X or 8X.
+    //
+    // If Oversampling = Off:
+    //
+    //     All four processors run normally at the host rate.
+    //
+    // IMPORTANT:
+    // This is ONE combined DSP section.
+    // Do NOT keep separate Doubler/Harmony/FX/Space processing
+    // sections below this block.
+    //
+    // ==========================================================
+
+
+    // ==========================================================
+    // READ DOUBLER PARAMETERS
+    // ==========================================================
 
     const float doublerAmount =
         apvts.getRawParameterValue(
             PARAM_DOUBLER_AMOUNT
         )->load();
 
-
     const float doublerDetune =
         apvts.getRawParameterValue(
             PARAM_DOUBLER_DETUNE
         )->load();
-
 
     const float doublerTiming =
         apvts.getRawParameterValue(
             PARAM_DOUBLER_TIMING
         )->load();
 
-
     const float doublerWidth =
         apvts.getRawParameterValue(
             PARAM_DOUBLER_WIDTH
         )->load();
-
 
     const float doublerMix =
         apvts.getRawParameterValue(
@@ -1690,22 +2267,8 @@ processBlock(
         )->load();
 
 
-    if (doublerMix > 0.0f &&
-        doublerAmount > 0.0f)
-    {
-        doublerProcessor.processBlock(
-            buffer,
-            doublerAmount,
-            doublerDetune,
-            doublerTiming,
-            doublerWidth,
-            doublerMix
-        );
-    }
-
-
     // ==========================================================
-    // HARMONY
+    // READ HARMONY PARAMETERS
     // ==========================================================
 
     const int harmonyVoice1Choice =
@@ -1715,7 +2278,6 @@ processBlock(
             )->load()
         );
 
-
     const int harmonyVoice2Choice =
         juce::roundToInt(
             apvts.getRawParameterValue(
@@ -1723,14 +2285,12 @@ processBlock(
             )->load()
         );
 
-
     const int harmonyVoice3Choice =
         juce::roundToInt(
             apvts.getRawParameterValue(
                 PARAM_HARMONY_VOICE3
             )->load()
         );
-
 
     const int harmonyVoice4Choice =
         juce::roundToInt(
@@ -1779,13 +2339,16 @@ processBlock(
         );
 
 
-    // ----------------------------------------------------------
-    // Calculate a scale-aware harmony interval.
+    // ==========================================================
+    // SCALE-AWARE HARMONY CALCULATION
+    // ==========================================================
     //
-    // Chromatic mode retains fixed intervals.
+    // This is the same harmony calculation you already had.
     //
-    // Major/Minor mode follows the selected scale.
-    // ----------------------------------------------------------
+    // It happens at the HOST rate because it only calculates
+    // MIDI intervals. It does not process audio.
+    //
+    // ==========================================================
 
     auto calculateScaleAwareHarmonyInterval =
         [harmonyKey, harmonyScale](
@@ -1890,12 +2453,12 @@ processBlock(
 
 
         for (int octave = -1;
-             octave <= 10;
-             ++octave)
+            octave <= 10;
+            ++octave)
         {
             for (int degree = 0;
-                 degree < 7;
-                 ++degree)
+                degree < 7;
+                ++degree)
             {
                 const int candidateMidi =
                     harmonyKey
@@ -1944,14 +2507,13 @@ processBlock(
 
 
         for (int degree = 0;
-             degree < 7;
-             ++degree)
+            degree < 7;
+            ++degree)
         {
             const int scalePitchClass =
                 (
                     (
-                        harmonyKey
-                        +
+                        harmonyKey +
                         scaleIntervals[degree]
                     )
                     % 12
@@ -2074,7 +2636,7 @@ processBlock(
 
 
     // ==========================================================
-    // CALCULATE ALL FOUR VOICES
+    // CALCULATE ALL FOUR HARMONY VOICES
     // ==========================================================
 
     const float harmonyVoice1 =
@@ -2106,56 +2668,34 @@ processBlock(
 
 
     // ==========================================================
-    // PROCESS HARMONY
+    // CHECK WHETHER HARMONY HAS AN ACTIVE VOICE
     // ==========================================================
 
-    if (harmonyMix > 0.0f &&
-        harmonyPitchDetected)
+    const float harmonyIntervals[4] =
     {
-        const float harmonyIntervals[4] =
+        harmonyVoice1,
+        harmonyVoice2,
+        harmonyVoice3,
+        harmonyVoice4
+    };
+
+
+    bool hasHarmonyVoice = false;
+
+
+    for (const auto interval :
+        harmonyIntervals)
+    {
+        if (std::abs(interval) > 0.01f)
         {
-            harmonyVoice1,
-            harmonyVoice2,
-            harmonyVoice3,
-            harmonyVoice4
-        };
-
-
-        bool hasHarmonyVoice = false;
-
-
-        for (const auto interval :
-             harmonyIntervals)
-        {
-            if (std::abs(interval) >
-                0.01f)
-            {
-                hasHarmonyVoice =
-                    true;
-
-                break;
-            }
-        }
-
-
-        if (hasHarmonyVoice)
-        {
-            harmonyProcessor.processBlock(
-                buffer,
-                harmonyVoice1,
-                harmonyVoice2,
-                harmonyVoice3,
-                harmonyVoice4,
-                harmonyMix,
-                harmonyDetectedFrequency,
-                harmonyPitchDetected
-            );
+            hasHarmonyVoice = true;
+            break;
         }
     }
 
 
     // ==========================================================
-    // CREATIVE VOCAL FX
+    // READ CREATIVE FX PARAMETERS
     // ==========================================================
 
     const int creativeFXTypeValue =
@@ -2197,20 +2737,8 @@ processBlock(
         );
 
 
-    if (creativeFXTypeValue > 0 &&
-        creativeFXMix > 0.0f)
-    {
-        creativeFXProcessor.processBlock(
-            buffer,
-            creativeFXType,
-            creativeFXAmount,
-            creativeFXMix
-        );
-    }
-
-
     // ==========================================================
-    // VOCAL SPACE
+    // READ SPACE PARAMETERS
     // ==========================================================
 
     const int spaceType =
@@ -2251,20 +2779,244 @@ processBlock(
         )->load() / 100.0f;
 
 
-    if (spaceType > 0 &&
-        spaceMix > 0.0f)
+    // ==========================================================
+    // OVERSAMPLED PROCESSING
+    // ==========================================================
+    //
+    // If an oversampler exists:
+    //
+    //     HOST RATE
+    //          |
+    //          v
+    //       UPSAMPLE
+    //          |
+    //          v
+    //     CREATIVE DSP
+    //          |
+    //          v
+    //      DOWNSAMPLE
+    //          |
+    //          v
+    //       HOST RATE
+    //
+    // ==========================================================
+
+    if (oversampler != nullptr)
     {
-        spaceProcessor.processBlock(
-            buffer,
-            spaceType,
-            spaceSize,
-            spaceDecay,
-            spacePreDelay,
-            spaceDamping,
-            spaceMix
+        // ======================================================
+        // CREATE HOST AUDIO BLOCK
+        // ======================================================
+
+        juce::dsp::AudioBlock<float> hostBlock(
+            buffer
+        );
+
+
+        // ======================================================
+        // UPSAMPLE
+        // ======================================================
+
+        auto oversampledBlock =
+            oversampler->processSamplesUp(
+                hostBlock
+            );
+
+
+        // ======================================================
+        // CREATE AUDIOBUFFER VIEW
+        // ======================================================
+        //
+        // The existing DSP processors use AudioBuffer<float>.
+        //
+        // We create a lightweight view into the oversampler's
+        // internal memory.
+        //
+        // No additional audio allocation is performed here.
+        //
+        // ======================================================
+
+        float* oversampledChannelPointers[2] =
+        {
+            oversampledBlock.getChannelPointer(0),
+            oversampledBlock.getChannelPointer(1)
+        };
+
+
+        juce::AudioBuffer<float> oversampledBuffer(
+            oversampledChannelPointers,
+            numChannels,
+            static_cast<int>(
+                oversampledBlock.getNumSamples()
+            )
+        );
+
+
+        // ======================================================
+        // DOUBLER - OVERSAMPLED
+        // ======================================================
+
+        if (doublerMix > 0.0f &&
+            doublerAmount > 0.0f)
+        {
+            doublerProcessor.processBlock(
+                oversampledBuffer,
+                doublerAmount,
+                doublerDetune,
+                doublerTiming,
+                doublerWidth,
+                doublerMix
+            );
+        }
+
+
+        // ======================================================
+        // HARMONY - OVERSAMPLED
+        // ======================================================
+
+        if (harmonyMix > 0.0f &&
+            harmonyPitchDetected &&
+            hasHarmonyVoice)
+        {
+            harmonyProcessor.processBlock(
+                oversampledBuffer,
+                harmonyVoice1,
+                harmonyVoice2,
+                harmonyVoice3,
+                harmonyVoice4,
+                harmonyMix,
+                harmonyDetectedFrequency,
+                harmonyPitchDetected
+            );
+        }
+
+
+        // ======================================================
+        // CREATIVE FX - OVERSAMPLED
+        // ======================================================
+
+        if (creativeFXTypeValue > 0 &&
+            creativeFXMix > 0.0f)
+        {
+            creativeFXProcessor.processBlock(
+                oversampledBuffer,
+                creativeFXType,
+                creativeFXAmount,
+                creativeFXMix
+            );
+        }
+
+
+        // ======================================================
+        // SPACE - OVERSAMPLED
+        // ======================================================
+
+        if (spaceType > 0 &&
+            spaceMix > 0.0f)
+        {
+            spaceProcessor.processBlock(
+                oversampledBuffer,
+                spaceType,
+                spaceSize,
+                spaceDecay,
+                spacePreDelay,
+                spaceDamping,
+                spaceMix
+            );
+        }
+
+
+        // ======================================================
+        // DOWNSAMPLE
+        // ======================================================
+
+        oversampler->processSamplesDown(
+            hostBlock
         );
     }
+    else
+    {
+        // ======================================================
+        // OVERSAMPLING OFF
+        // ======================================================
+        //
+        // This is the original host-rate processing path.
+        //
+        // ======================================================
 
+
+        // ======================================================
+        // DOUBLER - HOST RATE
+        // ======================================================
+
+        if (doublerMix > 0.0f &&
+            doublerAmount > 0.0f)
+        {
+            doublerProcessor.processBlock(
+                buffer,
+                doublerAmount,
+                doublerDetune,
+                doublerTiming,
+                doublerWidth,
+                doublerMix
+            );
+        }
+
+
+        // ======================================================
+        // HARMONY - HOST RATE
+        // ======================================================
+
+        if (harmonyMix > 0.0f &&
+            harmonyPitchDetected &&
+            hasHarmonyVoice)
+        {
+            harmonyProcessor.processBlock(
+                buffer,
+                harmonyVoice1,
+                harmonyVoice2,
+                harmonyVoice3,
+                harmonyVoice4,
+                harmonyMix,
+                harmonyDetectedFrequency,
+                harmonyPitchDetected
+            );
+        }
+
+
+        // ======================================================
+        // CREATIVE FX - HOST RATE
+        // ======================================================
+
+        if (creativeFXTypeValue > 0 &&
+            creativeFXMix > 0.0f)
+        {
+            creativeFXProcessor.processBlock(
+                buffer,
+                creativeFXType,
+                creativeFXAmount,
+                creativeFXMix
+            );
+        }
+
+
+        // ======================================================
+        // SPACE - HOST RATE
+        // ======================================================
+
+        if (spaceType > 0 &&
+            spaceMix > 0.0f)
+        {
+            spaceProcessor.processBlock(
+                buffer,
+                spaceType,
+                spaceSize,
+                spaceDecay,
+                spacePreDelay,
+                spaceDamping,
+                spaceMix
+            );
+        }
+    }
 
     // ==========================================================
     // GLOBAL MIX
@@ -2379,6 +3131,290 @@ processBlock(
 }
 
 
+//==============================================================================
+// SETTINGS - PROCESSING ENABLE
+//==============================================================================
+
+void OfforVocalProAudioProcessor::setProcessingEnabled(
+    bool enabled)
+{
+    processingEnabled.store(
+        enabled);
+}
+
+//==============================================================================
+
+bool OfforVocalProAudioProcessor::isProcessingEnabled() const
+{
+    return processingEnabled.load();
+}
+
+
+// ==========================================================
+// SET OVERSAMPLING MODE
+// ==========================================================
+
+void OfforVocalProAudioProcessor::setOversamplingMode(
+    const juce::String& mode)
+{
+    // ==========================================================
+    // VALIDATE
+    // ==========================================================
+
+    if (mode != "Off"
+        && mode != "2X"
+        && mode != "4X"
+        && mode != "8X")
+    {
+        return;
+    }
+
+
+    // ==========================================================
+    // NOTHING TO DO IF ALREADY ACTIVE
+    // ==========================================================
+
+    if (oversamplingMode == mode)
+        return;
+
+
+    // ==========================================================
+    // UPDATE SETTING
+    // ==========================================================
+
+    oversamplingMode = mode;
+
+
+    // ==========================================================
+    // RECONFIGURE DSP
+    // ==========================================================
+    //
+    // Changing oversampling requires:
+    //
+    //     1. Creating a new oversampling engine
+    //     2. Reallocating its internal buffers
+    //     3. Re-preparing the creative DSP
+    //     4. Updating latency
+    //
+    // These operations must NOT happen simultaneously with
+    // processBlock().
+    //
+    // ==========================================================
+
+    const juce::SpinLock::ScopedLockType lock(
+        dspConfigurationLock);
+
+    configureOversampling(
+        oversamplingMode);
+}
+
+
+// ==========================================================
+// GET OVERSAMPLING MODE
+// ==========================================================
+
+juce::String
+OfforVocalProAudioProcessor::getOversamplingMode() const
+{
+    return oversamplingMode;
+}
+
+
+//==============================================================================
+// SETTINGS - PROCESSING QUALITY
+//==============================================================================
+
+void OfforVocalProAudioProcessor::setProcessingQuality(
+    const juce::String& quality
+)
+{
+    processingQuality = quality;
+
+    //==============================================================
+    // DOUBLER
+    //==============================================================
+
+    DoublerProcessor::ProcessingQuality doublerQuality =
+        DoublerProcessor::ProcessingQuality::High;
+
+    //==============================================================
+    // HARMONY
+    //==============================================================
+
+    HarmonyProcessor::ProcessingQuality harmonyQuality =
+        HarmonyProcessor::ProcessingQuality::High;
+
+    //==============================================================
+    // CREATIVE FX
+    //==============================================================
+
+    CreativeFXProcessor::ProcessingQuality creativeFXQuality =
+        CreativeFXProcessor::ProcessingQuality::High;
+
+    //==============================================================
+
+    if (quality == "Low")
+    {
+        doublerQuality =
+            DoublerProcessor::ProcessingQuality::Low;
+
+        harmonyQuality =
+            HarmonyProcessor::ProcessingQuality::Low;
+
+        creativeFXQuality =
+            CreativeFXProcessor::ProcessingQuality::Low;
+    }
+    else if (quality == "Medium")
+    {
+        doublerQuality =
+            DoublerProcessor::ProcessingQuality::Medium;
+
+        harmonyQuality =
+            HarmonyProcessor::ProcessingQuality::Medium;
+
+        creativeFXQuality =
+            CreativeFXProcessor::ProcessingQuality::Medium;
+    }
+    else if (quality == "High")
+    {
+        doublerQuality =
+            DoublerProcessor::ProcessingQuality::High;
+
+        harmonyQuality =
+            HarmonyProcessor::ProcessingQuality::High;
+
+        creativeFXQuality =
+            CreativeFXProcessor::ProcessingQuality::High;
+    }
+    else if (quality == "Ultra")
+    {
+        doublerQuality =
+            DoublerProcessor::ProcessingQuality::Ultra;
+
+        harmonyQuality =
+            HarmonyProcessor::ProcessingQuality::Ultra;
+
+        creativeFXQuality =
+            CreativeFXProcessor::ProcessingQuality::Ultra;
+    }
+
+    //==============================================================
+    // APPLY REAL DSP QUALITY
+    //==============================================================
+
+    doublerProcessor.setProcessingQuality(
+        doublerQuality
+    );
+
+    harmonyProcessor.setProcessingQuality(
+        harmonyQuality
+    );
+
+    creativeFXProcessor.setProcessingQuality(
+        creativeFXQuality
+    );
+}
+
+//==============================================================================
+
+juce::String OfforVocalProAudioProcessor::getProcessingQuality() const
+{
+    return processingQuality;
+}
+
+
+//==============================================================================
+// SETTINGS - CPU MODE
+//==============================================================================
+
+void OfforVocalProAudioProcessor::setCPUMode(
+    const juce::String& mode
+)
+{
+    cpuMode = mode;
+
+    //==============================================================
+    // DOUBLER
+    //==============================================================
+
+    DoublerProcessor::CPUMode doublerMode =
+        DoublerProcessor::CPUMode::Balanced;
+
+    //==============================================================
+    // HARMONY
+    //==============================================================
+
+    HarmonyProcessor::CPUMode harmonyMode =
+        HarmonyProcessor::CPUMode::Balanced;
+
+    //==============================================================
+    // CREATIVE FX
+    //==============================================================
+
+    CreativeFXProcessor::CPUMode creativeFXMode =
+        CreativeFXProcessor::CPUMode::Balanced;
+
+    //==============================================================
+
+    if (mode == "Low CPU")
+    {
+        doublerMode =
+            DoublerProcessor::CPUMode::LowCPU;
+
+        harmonyMode =
+            HarmonyProcessor::CPUMode::LowCPU;
+
+        creativeFXMode =
+            CreativeFXProcessor::CPUMode::LowCPU;
+    }
+    else if (mode == "Balanced")
+    {
+        doublerMode =
+            DoublerProcessor::CPUMode::Balanced;
+
+        harmonyMode =
+            HarmonyProcessor::CPUMode::Balanced;
+
+        creativeFXMode =
+            CreativeFXProcessor::CPUMode::Balanced;
+    }
+    else if (mode == "Performance")
+    {
+        doublerMode =
+            DoublerProcessor::CPUMode::Performance;
+
+        harmonyMode =
+            HarmonyProcessor::CPUMode::Performance;
+
+        creativeFXMode =
+            CreativeFXProcessor::CPUMode::Performance;
+    }
+
+    //==============================================================
+    // APPLY REAL DSP CPU MODE
+    //==============================================================
+
+    doublerProcessor.setCPUMode(
+        doublerMode
+    );
+
+    harmonyProcessor.setCPUMode(
+        harmonyMode
+    );
+
+    creativeFXProcessor.setCPUMode(
+        creativeFXMode
+    );
+}
+
+//==============================================================================
+
+juce::String OfforVocalProAudioProcessor::getCPUMode() const
+{
+    return cpuMode;
+}
+
+
 // ==========================================================
 // PLUGIN INFORMATION
 // ==========================================================
@@ -2459,19 +3495,108 @@ changeProgramName(
 // ==========================================================
 // STATE SAVE
 // ==========================================================
+//
+// Saves:
+//
+//     1. All APVTS parameters
+//     2. Selected UI theme
+//     3. All custom theme colours
+//
+// Everything is stored inside the same ValueTree/XML state
+// that the DAW already saves.
+//
+// This means the theme follows:
+//
+//     - DAW projects
+//     - Plugin state
+//     - Preset/state recall
+//
+// ==========================================================
 
 void
 OfforVocalProAudioProcessor::
 getStateInformation(
     juce::MemoryBlock& destData)
 {
+    // ======================================================
+    // COPY CURRENT PARAMETER STATE
+    // ======================================================
+
     auto state =
         apvts.copyState();
 
 
+    // ======================================================
+    // SAVE SELECTED THEME
+    // ======================================================
+
+    state.setProperty(
+        "OFFOR_THEME",
+        ThemeManager::get().getThemeName(),
+        nullptr
+    );
+
+
+    // ======================================================
+    // SAVE CUSTOM COLOURS
+    // ======================================================
+    //
+    // We save every custom colour individually.
+    //
+    // ARGB is used because it preserves the complete JUCE
+    // Colour value including alpha.
+    //
+    // ======================================================
+
+    const juce::StringArray colourIds =
+    {
+        "background",
+        "panel",
+        "panel2",
+        "border",
+        "text",
+        "muted",
+        "accent",
+        "accentDark",
+        "display",
+        "knob",
+        "knobHighlight",
+        "meter",
+        "meterBackground",
+        "success",
+        "warning"
+    };
+
+
+    for (const auto& colourId : colourIds)
+    {
+        const auto colour =
+            ThemeManager::get().getCustomColour(
+                colourId
+            );
+
+
+        state.setProperty(
+            "OFFOR_COLOUR_" + colourId,
+            static_cast<int64_t>(
+                colour.getARGB()
+            ),
+            nullptr
+        );
+    }
+
+
+    // ======================================================
+    // CREATE XML
+    // ======================================================
+
     std::unique_ptr<juce::XmlElement> xml =
         state.createXml();
 
+
+    // ======================================================
+    // WRITE STATE TO HOST
+    // ======================================================
 
     if (xml != nullptr)
     {
@@ -2482,9 +3607,19 @@ getStateInformation(
     }
 }
 
-
 // ==========================================================
 // STATE RESTORE
+// ==========================================================
+//
+// Restores:
+//
+//     1. All APVTS parameters
+//     2. Selected UI theme
+//     3. Custom theme colours
+//
+// Older saved states that do not contain theme properties
+// are still supported.
+//
 // ==========================================================
 
 void
@@ -2493,6 +3628,10 @@ setStateInformation(
     const void* data,
     int sizeInBytes)
 {
+    // ======================================================
+    // READ XML
+    // ======================================================
+
     std::unique_ptr<juce::XmlElement> xml =
         getXmlFromBinary(
             data,
@@ -2504,6 +3643,10 @@ setStateInformation(
         return;
 
 
+    // ======================================================
+    // VERIFY ROOT
+    // ======================================================
+
     if (!xml->hasTagName(
             apvts.state.getType()
         ))
@@ -2511,6 +3654,10 @@ setStateInformation(
         return;
     }
 
+
+    // ======================================================
+    // CONVERT XML → VALUETREE
+    // ======================================================
 
     const juce::ValueTree restoredState =
         juce::ValueTree::fromXml(
@@ -2522,9 +3669,148 @@ setStateInformation(
         return;
 
 
+    // ======================================================
+    // RESTORE APVTS
+    // ======================================================
+    //
+    // This remains exactly the same principle as your
+    // original implementation.
+    //
+    // All audio parameters are restored here.
+    //
+    // ======================================================
+
     apvts.replaceState(
         restoredState
     );
+
+
+    // ======================================================
+    // RESTORE THEME
+    // ======================================================
+    //
+    // If this property does not exist, this is an older
+    // saved state and we simply keep the current/default
+    // theme.
+    //
+    // ======================================================
+
+    if (restoredState.hasProperty(
+            "OFFOR_THEME"))
+    {
+        const juce::String savedTheme =
+            restoredState
+                .getProperty(
+                    "OFFOR_THEME"
+                )
+                .toString();
+
+
+        if (savedTheme.isNotEmpty())
+        {
+            ThemeManager::get().setTheme(
+                savedTheme
+            );
+        }
+    }
+
+
+    // ======================================================
+    // RESTORE CUSTOM COLOURS
+    // ======================================================
+    //
+    // Restore every saved custom colour.
+    //
+    // We deliberately do this AFTER restoring the theme.
+    //
+    // If the saved theme is "Custom", these colours become
+    // the active Custom palette.
+    //
+    // ======================================================
+
+    const juce::StringArray colourIds =
+    {
+        "background",
+        "panel",
+        "panel2",
+        "border",
+        "text",
+        "muted",
+        "accent",
+        "accentDark",
+        "display",
+        "knob",
+        "knobHighlight",
+        "meter",
+        "meterBackground",
+        "success",
+        "warning"
+    };
+
+
+    for (const auto& colourId : colourIds)
+    {
+        const juce::String propertyName =
+            "OFFOR_COLOUR_" + colourId;
+
+
+        if (!restoredState.hasProperty(
+                propertyName))
+        {
+            continue;
+        }
+
+
+        const int64_t argb =
+            static_cast<int64_t>(
+                restoredState.getProperty(
+                    propertyName
+                )
+            );
+
+
+        ThemeManager::get().setCustomColourWithoutChangingTheme(
+            colourId,
+            juce::Colour(
+                static_cast<juce::uint32>(
+                    argb
+                )
+            )
+        );
+    }
+
+
+    // ======================================================
+    // RESTORE THEME ONE MORE TIME
+    // ======================================================
+    //
+    // setCustomColour() intentionally switches the
+    // ThemeManager to "Custom".
+    //
+    // Therefore we restore the saved theme AFTER loading
+    // the colours so that a saved built-in theme such as
+    // "Midnight Blue" does NOT accidentally become Custom.
+    //
+    // ======================================================
+
+    if (restoredState.hasProperty(
+            "OFFOR_THEME"))
+    {
+        const juce::String savedTheme =
+            restoredState
+                .getProperty(
+                    "OFFOR_THEME"
+                )
+                .toString();
+
+
+        if (savedTheme.isNotEmpty())
+        {
+            ThemeManager::get().setTheme(
+                savedTheme
+            );
+        }
+    }
 
 
     // ======================================================

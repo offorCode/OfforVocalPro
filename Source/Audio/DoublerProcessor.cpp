@@ -27,11 +27,13 @@ void DoublerProcessor::prepare(
             ? newSampleRate
             : 44100.0;
 
+
     maximumBlockSize =
         juce::jmax(
             1,
             newMaximumBlockSize
         );
+
 
     numChannels =
         juce::jlimit(
@@ -40,6 +42,10 @@ void DoublerProcessor::prepare(
             newNumChannels
         );
 
+
+    // ======================================================
+    // DELAY BUFFER
+    // ======================================================
 
     delayBuffer.setSize(
         numChannels,
@@ -50,6 +56,11 @@ void DoublerProcessor::prepare(
 
 
     prepared = true;
+
+
+    // ======================================================
+    // RESET DSP STATE
+    // ======================================================
 
     reset();
 }
@@ -65,9 +76,40 @@ void DoublerProcessor::reset()
 
     writePosition = 0;
 
+
+    // ======================================================
+    // RESET LFO PHASE
+    // ======================================================
+
     lfoPhaseLeft = 0.0;
+
     lfoPhaseRight = 0.0;
 
+
+    // ======================================================
+    // RESET LFO INTERPOLATION STATE
+    // ======================================================
+
+    leftLfoCurrent = 0.0f;
+    leftLfoTarget = 0.0f;
+
+    rightLfoCurrent = 0.0f;
+    rightLfoTarget = 0.0f;
+
+    leftLfoSamplesRemaining = 0;
+    rightLfoSamplesRemaining = 0;
+
+
+    leftLfoUpdateInterval =
+        getEffectiveLfoUpdateInterval();
+
+    rightLfoUpdateInterval =
+        leftLfoUpdateInterval;
+
+
+    // ======================================================
+    // RESET PARAMETERS
+    // ======================================================
 
     currentAmount = 0.0f;
     targetAmount = 0.0f;
@@ -83,6 +125,408 @@ void DoublerProcessor::reset()
 
     currentMix = 0.0f;
     targetMix = 0.0f;
+}
+
+
+// ==========================================================
+// PROCESSING QUALITY
+// ==========================================================
+
+void DoublerProcessor::setProcessingQuality(
+    ProcessingQuality newQuality)
+{
+    processingQuality = newQuality;
+
+
+    // ======================================================
+    // RECALCULATE LFO QUALITY
+    //
+    // We do not reset the audio buffer here.
+    //
+    // The new quality simply changes how frequently the LFO
+    // calculation is performed.
+    // ======================================================
+
+    const int newInterval =
+        getEffectiveLfoUpdateInterval();
+
+
+    leftLfoUpdateInterval = newInterval;
+
+    rightLfoUpdateInterval = newInterval;
+
+
+    // Restart interpolation from the current LFO position.
+    leftLfoSamplesRemaining = 0;
+    rightLfoSamplesRemaining = 0;
+}
+
+
+// ==========================================================
+// CPU MODE
+// ==========================================================
+
+void DoublerProcessor::setCPUMode(
+    CPUMode newMode)
+{
+    cpuMode = newMode;
+
+
+    // ======================================================
+    // RECALCULATE DSP WORKLOAD
+    // ======================================================
+
+    const int newInterval =
+        getEffectiveLfoUpdateInterval();
+
+
+    leftLfoUpdateInterval = newInterval;
+
+    rightLfoUpdateInterval = newInterval;
+
+
+    leftLfoSamplesRemaining = 0;
+    rightLfoSamplesRemaining = 0;
+}
+
+
+// ==========================================================
+// BASE QUALITY
+// ==========================================================
+//
+// This determines how often the expensive LFO sine
+// calculation is performed.
+//
+// HIGH is deliberately the reference mode.
+//
+// ULTRA performs the LFO calculation every sample.
+//
+// LOW and MEDIUM calculate fewer points but interpolate
+// between them to preserve smooth modulation.
+//
+
+int DoublerProcessor::getBaseLfoUpdateInterval() const
+{
+    switch (processingQuality)
+    {
+        case ProcessingQuality::Low:
+            return 8;
+
+        case ProcessingQuality::Medium:
+            return 4;
+
+        case ProcessingQuality::High:
+            return 2;
+
+        case ProcessingQuality::Ultra:
+            return 1;
+
+        default:
+            return 2;
+    }
+}
+
+
+// ==========================================================
+// EFFECTIVE LFO UPDATE INTERVAL
+// ==========================================================
+//
+// CPU MODE modifies the requested processing quality.
+//
+// LOW CPU:
+//     More aggressive reduction in expensive calculations.
+//
+// BALANCED:
+//     Uses the requested Processing Quality directly.
+//
+// PERFORMANCE:
+//     Allows more frequent calculations.
+//
+// This does NOT bypass the user's quality selection.
+// It only applies a CPU policy on top of it.
+//
+
+int DoublerProcessor::getEffectiveLfoUpdateInterval() const
+{
+    int interval =
+        getBaseLfoUpdateInterval();
+
+
+    switch (cpuMode)
+    {
+        case CPUMode::LowCPU:
+        {
+            // ----------------------------------------------
+            // LOW CPU
+            //
+            // Double the calculation interval.
+            //
+            // Example:
+            // High = 2 samples
+            // becomes 4 samples.
+            //
+            // Ultra = 1 sample
+            // becomes 2 samples.
+            // ----------------------------------------------
+
+            interval *= 2;
+
+            break;
+        }
+
+
+        case CPUMode::Balanced:
+        {
+            // ----------------------------------------------
+            // BALANCED
+            //
+            // Keep the requested quality.
+            // ----------------------------------------------
+
+            break;
+        }
+
+
+        case CPUMode::Performance:
+        {
+            // ----------------------------------------------
+            // PERFORMANCE
+            //
+            // Allow a higher calculation rate.
+            //
+            // We never go below one calculation per sample.
+            // ----------------------------------------------
+
+            interval =
+                juce::jmax(
+                    1,
+                    interval / 2
+                );
+
+            break;
+        }
+    }
+
+
+    return juce::jlimit(
+        1,
+        16,
+        interval
+    );
+}
+
+
+// ==========================================================
+// LEFT LFO
+// ==========================================================
+//
+// Generates a smooth LFO value.
+//
+// At High/Ultra this is effectively sample-accurate.
+//
+// At lower quality levels, the expensive sine calculation
+// happens less frequently, while the output is interpolated
+// between calculated points.
+//
+
+float DoublerProcessor::getNextLeftLfoValue()
+{
+    const int interval =
+        juce::jmax(
+            1,
+            leftLfoUpdateInterval
+        );
+
+
+    // ======================================================
+    // START A NEW INTERPOLATION SEGMENT
+    // ======================================================
+
+    if (leftLfoSamplesRemaining <= 0)
+    {
+        leftLfoCurrent =
+            sineLfo(
+                lfoPhaseLeft
+            );
+
+
+        const double futurePhase =
+            lfoPhaseLeft
+            +
+            (
+                lfoRateLeft
+                /
+                sampleRate
+            )
+            *
+            static_cast<double>(interval);
+
+
+        leftLfoTarget =
+            sineLfo(
+                futurePhase
+            );
+
+
+        leftLfoSamplesRemaining =
+            interval;
+    }
+
+
+    // ======================================================
+    // CALCULATE INTERPOLATION POSITION
+    // ======================================================
+
+    const int samplesIntoSegment =
+        interval
+        -
+        leftLfoSamplesRemaining;
+
+
+    const float interpolation =
+        static_cast<float>(
+            samplesIntoSegment
+        )
+        /
+        static_cast<float>(
+            interval
+        );
+
+
+    const float output =
+        leftLfoCurrent
+        +
+        (
+            leftLfoTarget
+            -
+            leftLfoCurrent
+        )
+        *
+        interpolation;
+
+
+    // ======================================================
+    // ADVANCE PHASE SAMPLE-BY-SAMPLE
+    //
+    // Even when the sine calculation is reduced, phase
+    // remains sample accurate.
+    // ======================================================
+
+    lfoPhaseLeft +=
+        lfoRateLeft
+        /
+        sampleRate;
+
+
+    if (lfoPhaseLeft >= 1.0)
+        lfoPhaseLeft -= 1.0;
+
+
+    --leftLfoSamplesRemaining;
+
+
+    return output;
+}
+
+
+// ==========================================================
+// RIGHT LFO
+// ==========================================================
+
+float DoublerProcessor::getNextRightLfoValue()
+{
+    const int interval =
+        juce::jmax(
+            1,
+            rightLfoUpdateInterval
+        );
+
+
+    // ======================================================
+    // START A NEW INTERPOLATION SEGMENT
+    // ======================================================
+
+    if (rightLfoSamplesRemaining <= 0)
+    {
+        rightLfoCurrent =
+            sineLfo(
+                lfoPhaseRight
+            );
+
+
+        const double futurePhase =
+            lfoPhaseRight
+            +
+            (
+                lfoRateRight
+                /
+                sampleRate
+            )
+            *
+            static_cast<double>(interval);
+
+
+        rightLfoTarget =
+            sineLfo(
+                futurePhase
+            );
+
+
+        rightLfoSamplesRemaining =
+            interval;
+    }
+
+
+    // ======================================================
+    // CALCULATE INTERPOLATION POSITION
+    // ======================================================
+
+    const int samplesIntoSegment =
+        interval
+        -
+        rightLfoSamplesRemaining;
+
+
+    const float interpolation =
+        static_cast<float>(
+            samplesIntoSegment
+        )
+        /
+        static_cast<float>(
+            interval
+        );
+
+
+    const float output =
+        rightLfoCurrent
+        +
+        (
+            rightLfoTarget
+            -
+            rightLfoCurrent
+        )
+        *
+        interpolation;
+
+
+    // ======================================================
+    // ADVANCE PHASE SAMPLE-BY-SAMPLE
+    // ======================================================
+
+    lfoPhaseRight +=
+        lfoRateRight
+        /
+        sampleRate;
+
+
+    if (lfoPhaseRight >= 1.0)
+        lfoPhaseRight -= 1.0;
+
+
+    --rightLfoSamplesRemaining;
+
+
+    return output;
 }
 
 
@@ -112,14 +556,17 @@ void DoublerProcessor::processBlock(
     if (!prepared)
         return;
 
+
     const int samples =
         buffer.getNumSamples();
+
 
     const int channels =
         juce::jmin(
             buffer.getNumChannels(),
             numChannels
         );
+
 
     if (samples <= 0 || channels <= 0)
         return;
@@ -136,12 +583,14 @@ void DoublerProcessor::processBlock(
             amount / 100.0f
         );
 
+
     targetDetune =
         juce::jlimit(
             0.0f,
             1.0f,
             detune / 100.0f
         );
+
 
     targetTiming =
         juce::jlimit(
@@ -150,12 +599,14 @@ void DoublerProcessor::processBlock(
             timing / 100.0f
         );
 
+
     targetWidth =
         juce::jlimit(
             0.0f,
             1.0f,
             width / 100.0f
         );
+
 
     targetMix =
         juce::jlimit(
@@ -178,24 +629,53 @@ void DoublerProcessor::processBlock(
          ++sample)
     {
         currentAmount +=
-            (targetAmount - currentAmount)
-            * smoothing;
+            (
+                targetAmount
+                -
+                currentAmount
+            )
+            *
+            smoothing;
+
 
         currentDetune +=
-            (targetDetune - currentDetune)
-            * smoothing;
+            (
+                targetDetune
+                -
+                currentDetune
+            )
+            *
+            smoothing;
+
 
         currentTiming +=
-            (targetTiming - currentTiming)
-            * smoothing;
+            (
+                targetTiming
+                -
+                currentTiming
+            )
+            *
+            smoothing;
+
 
         currentWidth +=
-            (targetWidth - currentWidth)
-            * smoothing;
+            (
+                targetWidth
+                -
+                currentWidth
+            )
+            *
+            smoothing;
+
 
         currentMix +=
-            (targetMix - currentMix)
-            * smoothing;
+            (
+                targetMix
+                -
+                currentMix
+            )
+            *
+            smoothing;
 
 
         processSample(
@@ -203,36 +683,6 @@ void DoublerProcessor::processBlock(
             sample
         );
     }
-
-
-    // ======================================================
-    // UPDATE LFO PHASES
-    // ======================================================
-
-    // const double leftIncrement =
-    //     lfoRateLeft / sampleRate;
-
-    // const double rightIncrement =
-    //     lfoRateRight / sampleRate;
-
-    // lfoPhaseLeft +=
-    //     leftIncrement * samples;
-
-    // lfoPhaseRight +=
-    //     rightIncrement * samples;
-
-
-    // lfoPhaseLeft =
-    //     std::fmod(
-    //         lfoPhaseLeft,
-    //         1.0
-    //     );
-
-    // lfoPhaseRight =
-    //     std::fmod(
-    //         lfoPhaseRight,
-    //         1.0
-    //     );
 }
 
 
@@ -253,21 +703,27 @@ void DoublerProcessor::processSample(
 
 
     if (buffer.getNumChannels() >= 1)
+    {
         inputLeft =
             buffer.getSample(
                 0,
                 sampleIndex
             );
+    }
 
 
     if (buffer.getNumChannels() >= 2)
+    {
         inputRight =
             buffer.getSample(
                 1,
                 sampleIndex
             );
+    }
     else
+    {
         inputRight = inputLeft;
+    }
 
 
     // ======================================================
@@ -282,6 +738,7 @@ void DoublerProcessor::processSample(
             channel == 0
                 ? inputLeft
                 : inputRight;
+
 
         delayBuffer.setSample(
             channel,
@@ -303,67 +760,61 @@ void DoublerProcessor::processSample(
             -
             minimumDelayMs
         )
-        * currentTiming;
+        *
+        currentTiming;
 
 
     // ======================================================
     // DETUNE
     //
-    // Maximum modulation is deliberately small.
+    // Maximum modulation remains deliberately small.
     //
-    // This is what creates the natural "two takes"
-    // impression rather than an obvious chorus.
+    // This preserves the natural "double take" character.
     // ======================================================
 
     const float modulationAmountMs =
         maximumModulationMs
-        * currentDetune
-        * currentAmount;
+        *
+        currentDetune
+        *
+        currentAmount;
 
+
+    // ======================================================
+    // QUALITY-AWARE LFO
+    //
+    // These functions calculate/interpolate the LFO according
+    // to Processing Quality + CPU Mode.
+    //
+    // The phase itself remains sample-accurate.
+    // ======================================================
 
     const float leftLfo =
-        sineLfo(
-            lfoPhaseLeft
-        );
+        getNextLeftLfoValue();
 
 
     const float rightLfo =
-        sineLfo(
-            lfoPhaseRight
-        );
+        getNextRightLfoValue();
+
 
     // ======================================================
-    // ADVANCE LFO PER SAMPLE
-    //
-    // The LFO must advance for every audio sample.
-    // Updating it once per block causes staircase
-    // modulation and can create audible artifacts.
+    // MODULATED DELAYS
     // ======================================================
 
-    lfoPhaseLeft +=
-        lfoRateLeft / sampleRate;
-
-    lfoPhaseRight +=
-        lfoRateRight / sampleRate;
-
-    if (lfoPhaseLeft >= 1.0)
-        lfoPhaseLeft -= 1.0;
-
-    if (lfoPhaseRight >= 1.0)
-        lfoPhaseRight -= 1.0;
-
-
-    // Slightly different modulation directions.
     const float leftDelayMs =
         baseDelayMs
         +
-        leftLfo * modulationAmountMs;
+        leftLfo
+        *
+        modulationAmountMs;
 
 
     const float rightDelayMs =
         baseDelayMs
         -
-        rightLfo * modulationAmountMs;
+        rightLfo
+        *
+        modulationAmountMs;
 
 
     // ======================================================
@@ -377,7 +828,8 @@ void DoublerProcessor::processSample(
                 delayBufferSize - 2
             ),
             leftDelayMs
-            * static_cast<float>(
+            *
+            static_cast<float>(
                 sampleRate / 1000.0
             )
         );
@@ -390,14 +842,15 @@ void DoublerProcessor::processSample(
                 delayBufferSize - 2
             ),
             rightDelayMs
-            * static_cast<float>(
+            *
+            static_cast<float>(
                 sampleRate / 1000.0
             )
         );
 
 
     // ======================================================
-    // READ DELAYED SIGNAL
+    // READ POSITIONS
     // ======================================================
 
     const float leftReadPosition =
@@ -426,6 +879,10 @@ void DoublerProcessor::processSample(
         );
 
 
+    // ======================================================
+    // INTERPOLATED DELAY READ
+    // ======================================================
+
     const float delayedLeft =
         readInterpolated(
             0,
@@ -444,10 +901,6 @@ void DoublerProcessor::processSample(
     // STEREO WIDTH
     // ======================================================
 
-    // At 0% width, both voices stay near the center.
-    //
-    // At 100%, the doubled voices are spread apart.
-
     const float widthAmount =
         currentWidth;
 
@@ -459,47 +912,73 @@ void DoublerProcessor::processSample(
     const float leftGain =
         center
         +
-        center * widthAmount;
+        center
+        *
+        widthAmount;
 
 
     const float rightGain =
         center
         +
-        center * widthAmount;
+        center
+        *
+        widthAmount;
 
 
-    // Cross-feed keeps the effect usable at lower widths.
+    // ======================================================
+    // CROSS-FEED
+    // ======================================================
 
     const float leftDoubled =
-        delayedLeft * leftGain
+        delayedLeft
+        *
+        leftGain
         +
         delayedRight
-        * (1.0f - widthAmount)
-        * 0.5f;
+        *
+        (
+            1.0f
+            -
+            widthAmount
+        )
+        *
+        0.5f;
 
 
     const float rightDoubled =
-        delayedRight * rightGain
+        delayedRight
+        *
+        rightGain
         +
         delayedLeft
-        * (1.0f - widthAmount)
-        * 0.5f;
+        *
+        (
+            1.0f
+            -
+            widthAmount
+        )
+        *
+        0.5f;
 
 
     // ======================================================
     // AMOUNT
     // ======================================================
 
-    const float amount =
+    const float amountValue =
         currentAmount;
 
 
     const float doubledLeft =
-        leftDoubled * amount;
+        leftDoubled
+        *
+        amountValue;
 
 
     const float doubledRight =
-        rightDoubled * amount;
+        rightDoubled
+        *
+        amountValue;
 
 
     // ======================================================
@@ -511,7 +990,9 @@ void DoublerProcessor::processSample(
 
 
     const float dryGain =
-        1.0f - mixAmount;
+        1.0f
+        -
+        mixAmount;
 
 
     const float wetGain =
@@ -519,15 +1000,23 @@ void DoublerProcessor::processSample(
 
 
     const float outputLeft =
-        inputLeft * dryGain
+        inputLeft
+        *
+        dryGain
         +
-        doubledLeft * wetGain;
+        doubledLeft
+        *
+        wetGain;
 
 
     const float outputRight =
-        inputRight * dryGain
+        inputRight
+        *
+        dryGain
         +
-        doubledRight * wetGain;
+        doubledRight
+        *
+        wetGain;
 
 
     // ======================================================
@@ -559,6 +1048,7 @@ void DoublerProcessor::processSample(
     // ======================================================
 
     ++writePosition;
+
 
     if (writePosition >= delayBufferSize)
         writePosition = 0;
@@ -600,7 +1090,9 @@ float DoublerProcessor::readInterpolated(
 
 
     const int indexB =
-        (indexA + 1)
+        (
+            indexA + 1
+        )
         %
         delayBuffer.getNumSamples();
 
@@ -631,9 +1123,12 @@ float DoublerProcessor::readInterpolated(
         sampleA
         +
         (
-            sampleB - sampleA
+            sampleB
+            -
+            sampleA
         )
-        * fraction;
+        *
+        fraction;
 }
 
 
@@ -648,8 +1143,10 @@ float DoublerProcessor::wrapPosition(
     while (position < 0.0f)
         position += bufferSize;
 
+
     while (position >= bufferSize)
         position -= bufferSize;
+
 
     return position;
 }
@@ -665,7 +1162,8 @@ float DoublerProcessor::sineLfo(
     return static_cast<float>(
         std::sin(
             phase
-            * juce::MathConstants<double>::twoPi
+            *
+            juce::MathConstants<double>::twoPi
         )
     );
 }

@@ -1,7 +1,16 @@
 #include "SettingsPanel.h"
+#include "ThemeManager.h"
+#include "../Version.h"
 
 //==============================================================================
-// COLOURS
+// LEGACY COLOURS
+//==============================================================================
+//
+// These remain temporarily so existing code that references
+// SettingsPanel::accentColour etc. continues to compile.
+//
+// Actual runtime painting now obtains colours from ThemeManager.
+//
 //==============================================================================
 
 const juce::Colour SettingsPanel::backgroundColour =
@@ -32,45 +41,49 @@ const juce::Colour SettingsPanel::accentDarkColour =
 // TAB BUTTON
 //==============================================================================
 
-SettingsPanel::TabButton::TabButton(const juce::String& text)
+SettingsPanel::TabButton::TabButton(
+    const juce::String& text)
     : juce::Button(text),
       buttonText(text)
 {
-    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    setMouseCursor(
+        juce::MouseCursor::PointingHandCursor);
 }
 
-void SettingsPanel::TabButton::setSelected(bool shouldBeSelected)
+//==============================================================================
+
+void SettingsPanel::TabButton::setSelected(
+    bool shouldBeSelected)
 {
     selected = shouldBeSelected;
     repaint();
 }
+
+//==============================================================================
 
 void SettingsPanel::TabButton::paintButton(
     juce::Graphics& g,
     bool shouldDrawButtonAsHighlighted,
     bool shouldDrawButtonAsDown)
 {
-    juce::ignoreUnused(shouldDrawButtonAsDown);
+    juce::ignoreUnused(
+        shouldDrawButtonAsDown);
 
-    auto bounds = getLocalBounds().toFloat();
+    const auto colours =
+        ThemeManager::get().getColours();
 
-    //--------------------------------------------------------------------------
-    // Hover background
-    //--------------------------------------------------------------------------
+    auto bounds =
+        getLocalBounds().toFloat();
 
-    if (shouldDrawButtonAsHighlighted && ! selected)
+    if (shouldDrawButtonAsHighlighted && !selected)
     {
         g.setColour(
-            SettingsPanel::panelColour2.withAlpha(0.55f));
+            colours.panel2.withAlpha(0.55f));
 
         g.fillRoundedRectangle(
             bounds.reduced(2.0f),
             6.0f);
     }
-
-    //--------------------------------------------------------------------------
-    // Text
-    //--------------------------------------------------------------------------
 
     g.setFont(
         juce::Font(
@@ -81,8 +94,8 @@ void SettingsPanel::TabButton::paintButton(
 
     g.setColour(
         selected
-            ? SettingsPanel::textColour
-            : SettingsPanel::mutedColour);
+            ? colours.text
+            : colours.muted);
 
     g.drawText(
         buttonText,
@@ -90,13 +103,10 @@ void SettingsPanel::TabButton::paintButton(
         juce::Justification::centred,
         false);
 
-    //--------------------------------------------------------------------------
-    // Active underline
-    //--------------------------------------------------------------------------
-
     if (selected)
     {
-        g.setColour(SettingsPanel::accentColour);
+        g.setColour(
+            colours.accent);
 
         auto underline =
             bounds.withHeight(2.5f)
@@ -116,22 +126,30 @@ void SettingsPanel::TabButton::paintButton(
 SettingsPanel::CloseButton::CloseButton()
     : juce::Button("Close")
 {
-    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    setMouseCursor(
+        juce::MouseCursor::PointingHandCursor);
 }
+
+//==============================================================================
 
 void SettingsPanel::CloseButton::paintButton(
     juce::Graphics& g,
     bool shouldDrawButtonAsHighlighted,
     bool shouldDrawButtonAsDown)
 {
-    juce::ignoreUnused(shouldDrawButtonAsDown);
+    juce::ignoreUnused(
+        shouldDrawButtonAsDown);
 
-    auto bounds = getLocalBounds().toFloat();
+    const auto colours =
+        ThemeManager::get().getColours();
+
+    auto bounds =
+        getLocalBounds().toFloat();
 
     if (shouldDrawButtonAsHighlighted)
     {
         g.setColour(
-            SettingsPanel::panelColour2);
+            colours.panel2);
 
         g.fillRoundedRectangle(
             bounds.reduced(1.0f),
@@ -140,8 +158,8 @@ void SettingsPanel::CloseButton::paintButton(
 
     g.setColour(
         shouldDrawButtonAsHighlighted
-            ? SettingsPanel::textColour
-            : SettingsPanel::mutedColour);
+            ? colours.text
+            : colours.muted);
 
     g.drawLine(
         bounds.getCentreX() - 5.0f,
@@ -167,13 +185,19 @@ SettingsPanel::ToggleSwitch::ToggleSwitch()
 {
     setClickingTogglesState(true);
 
-    setToggleState(
+    juce::Button::setToggleState(
         true,
         juce::dontSendNotification);
 
+    isOn = true;
+
     setMouseCursor(
         juce::MouseCursor::PointingHandCursor);
+
+    setRepaintsOnMouseActivity(true);
 }
+
+//==============================================================================
 
 void SettingsPanel::ToggleSwitch::setToggleState(
     bool shouldBeOn,
@@ -188,10 +212,14 @@ void SettingsPanel::ToggleSwitch::setToggleState(
     repaint();
 }
 
+//==============================================================================
+
 bool SettingsPanel::ToggleSwitch::getToggleState() const
 {
-    return isOn;
+    return juce::Button::getToggleState();
 }
+
+//==============================================================================
 
 void SettingsPanel::ToggleSwitch::paintButton(
     juce::Graphics& g,
@@ -201,10 +229,17 @@ void SettingsPanel::ToggleSwitch::paintButton(
     juce::ignoreUnused(
         shouldDrawButtonAsDown);
 
-    auto bounds = getLocalBounds().toFloat();
+    const auto colours =
+        ThemeManager::get().getColours();
 
-    const float width = bounds.getWidth();
-    const float height = 24.0f;
+    auto bounds =
+        getLocalBounds().toFloat();
+
+    const float width =
+        bounds.getWidth();
+
+    const float height =
+        24.0f;
 
     auto track =
         juce::Rectangle<float>(
@@ -213,27 +248,30 @@ void SettingsPanel::ToggleSwitch::paintButton(
             width,
             height);
 
+    const bool on =
+        juce::Button::getToggleState();
+
     //--------------------------------------------------------------------------
     // Track
     //--------------------------------------------------------------------------
 
     g.setColour(
-        isOn
-            ? SettingsPanel::accentColour
-            : SettingsPanel::borderColour);
+        on
+            ? colours.accent
+            : colours.border);
 
     g.fillRoundedRectangle(
         track,
         height * 0.5f);
 
     //--------------------------------------------------------------------------
-    // Track highlight
+    // Hover highlight
     //--------------------------------------------------------------------------
 
     if (shouldDrawButtonAsHighlighted)
     {
         g.setColour(
-            juce::Colours::white.withAlpha(0.08f));
+            colours.text.withAlpha(0.08f));
 
         g.fillRoundedRectangle(
             track,
@@ -244,10 +282,11 @@ void SettingsPanel::ToggleSwitch::paintButton(
     // Knob
     //--------------------------------------------------------------------------
 
-    const float knobSize = height - 6.0f;
+    const float knobSize =
+        height - 6.0f;
 
     const float knobX =
-        isOn
+        on
             ? track.getRight() - knobSize - 3.0f
             : track.getX() + 3.0f;
 
@@ -259,12 +298,12 @@ void SettingsPanel::ToggleSwitch::paintButton(
             knobSize);
 
     g.setColour(
-        juce::Colours::white);
+        colours.text);
 
     g.fillEllipse(knob);
 
     //--------------------------------------------------------------------------
-    // Small ON/OFF text
+    // ON / OFF
     //--------------------------------------------------------------------------
 
     g.setFont(
@@ -275,12 +314,12 @@ void SettingsPanel::ToggleSwitch::paintButton(
                 .withStyle("Bold")));
 
     g.setColour(
-        isOn
-            ? juce::Colours::white
-            : SettingsPanel::mutedColour);
+        on
+            ? colours.text
+            : colours.muted);
 
     g.drawText(
-        isOn ? "ON" : "OFF",
+        on ? "ON" : "OFF",
         track.toNearestInt(),
         juce::Justification::centred,
         false);
@@ -299,16 +338,12 @@ SettingsPanel::SettingSelector::SettingSelector(
 
     setRepaintsOnMouseActivity(true);
 
-    //--------------------------------------------------------------------------
-    // Simple click behaviour for now.
-    //
-    // Later these selectors can become proper popup menus or ComboBoxes
-    // connected to APVTS parameters.
-    //--------------------------------------------------------------------------
-
-    setInterceptsMouseClicks(true, true);
+    setInterceptsMouseClicks(
+        true,
+        true);
 }
 
+//==============================================================================
 
 void SettingsPanel::SettingSelector::setValue(
     const juce::String& newValue)
@@ -317,50 +352,138 @@ void SettingsPanel::SettingSelector::setValue(
     repaint();
 }
 
-juce::String SettingsPanel::SettingSelector::getValue() const
+//==============================================================================
+
+juce::String
+SettingsPanel::SettingSelector::getValue() const
 {
     return value;
 }
 
+//==============================================================================
+
+void SettingsPanel::SettingSelector::setOptions(
+    const juce::StringArray& newOptions)
+{
+    options = newOptions;
+
+    if (!options.isEmpty() &&
+        !options.contains(value))
+    {
+        value = options[0];
+    }
+
+    repaint();
+}
+
+//==============================================================================
+
+void SettingsPanel::SettingSelector::showMenu()
+{
+    if (options.isEmpty())
+        return;
+
+    juce::PopupMenu menu;
+
+    for (int i = 0; i < options.size(); ++i)
+    {
+        menu.addItem(
+            i + 1,
+            options[i],
+            true,
+            options[i] == value);
+    }
+
+    menu.showMenuAsync(
+        juce::PopupMenu::Options()
+            .withTargetComponent(this)
+            .withMinimumWidth(getWidth())
+            .withMaximumNumColumns(1)
+            .withStandardItemHeight(34),
+        [this](int result)
+        {
+            if (result <= 0)
+                return;
+
+            const int index =
+                result - 1;
+
+            if (juce::isPositiveAndBelow(
+                    index,
+                    options.size()))
+            {
+                value =
+                    options[index];
+
+                repaint();
+
+                if (onClicked)
+                    onClicked();
+            }
+        });
+}
+
+//==============================================================================
+
+void SettingsPanel::SettingSelector::mouseEnter(
+    const juce::MouseEvent& event)
+{
+    juce::ignoreUnused(event);
+
+    mouseOver = true;
+    repaint();
+}
+
+//==============================================================================
+
+void SettingsPanel::SettingSelector::mouseExit(
+    const juce::MouseEvent& event)
+{
+    juce::ignoreUnused(event);
+
+    mouseOver = false;
+    repaint();
+}
+
+//==============================================================================
+
+void SettingsPanel::SettingSelector::mouseDown(
+    const juce::MouseEvent& event)
+{
+    juce::ignoreUnused(event);
+
+    showMenu();
+}
+
+//==============================================================================
+
 void SettingsPanel::SettingSelector::paint(
     juce::Graphics& g)
 {
+    const auto colours =
+        ThemeManager::get().getColours();
+
     auto bounds =
         getLocalBounds().toFloat();
 
-    const bool highlighted =
-        isMouseOver();
-
-    //--------------------------------------------------------------------------
-    // Background
-    //--------------------------------------------------------------------------
-
     g.setColour(
-        highlighted
-            ? SettingsPanel::panelColour2
-            : SettingsPanel::panelColour);
+        mouseOver
+            ? colours.panel2
+            : colours.panel);
 
     g.fillRoundedRectangle(
         bounds,
         7.0f);
 
-    //--------------------------------------------------------------------------
-    // Border
-    //--------------------------------------------------------------------------
-
     g.setColour(
-        highlighted
-            ? SettingsPanel::accentDarkColour
-            : SettingsPanel::borderColour);
+        mouseOver
+            ? colours.accentDark
+            : colours.border);
 
     g.drawRoundedRectangle(
         bounds.reduced(0.5f),
         7.0f,
         1.0f);
-
-    //--------------------------------------------------------------------------
-    // Value
-    //--------------------------------------------------------------------------
 
     g.setFont(
         juce::Font(
@@ -370,18 +493,15 @@ void SettingsPanel::SettingSelector::paint(
                 .withStyle("Medium")));
 
     g.setColour(
-        SettingsPanel::textColour);
+        colours.text);
 
     g.drawText(
         value,
         bounds.reduced(12.0f, 0.0f)
-             .withRightX(bounds.getRight() - 25.0f),
+             .withRightX(
+                 bounds.getRight() - 25.0f),
         juce::Justification::centredLeft,
         false);
-
-    //--------------------------------------------------------------------------
-    // Arrow
-    //--------------------------------------------------------------------------
 
     const float arrowX =
         bounds.getRight() - 17.0f;
@@ -404,7 +524,9 @@ void SettingsPanel::SettingSelector::paint(
         arrowY - 2.0f);
 
     g.setColour(
-        SettingsPanel::mutedColour);
+        mouseOver
+            ? colours.text
+            : colours.muted);
 
     g.strokePath(
         arrow,
@@ -414,62 +536,665 @@ void SettingsPanel::SettingSelector::paint(
             juce::PathStrokeType::rounded));
 }
 
-// ==========================================================
-// SETTING SELECTOR - RESIZED
-// ==========================================================
+//==============================================================================
 
 void SettingsPanel::SettingSelector::resized()
 {
-    // The selector is currently a custom visual control.
-    // There are no child components inside it yet.
-    //
-    // This function is intentionally empty for now.
-    // It exists because SettingSelector inherits from
-    // juce::Component and declares resized() in the header.
 }
 
-
 //==============================================================================
-// SETTINGS PANEL
+// CONSTRUCTOR
 //==============================================================================
 
 SettingsPanel::SettingsPanel()
 {
-    //==========================================================================
-    // Basic component configuration
-    //==========================================================================
-
     setOpaque(true);
 
     //==========================================================================
-    // Tabs
+    // REGISTER AS A THEME LISTENER
+    //==========================================================================
+
+    ThemeManager::get().addChangeListener(this);
+
+    //==========================================================================
+    // CREATE UI
     //==========================================================================
 
     setupTabs();
-
-    //==========================================================================
-    // Labels
-    //==========================================================================
-
     setupLabels();
-
-    //==========================================================================
-    // Controls
-    //==========================================================================
-
     setupControls();
-
-    //==========================================================================
-    // About
-    //==========================================================================
-
     setupAboutPage();
+    setupUserGuide();
 
     //==========================================================================
-    // Initial page
+    // FEEDBACK
     //==========================================================================
+    //
+    // Feedback is a separate component so the network/UI code does not
+    // make SettingsPanel unnecessarily large.
+    //
+    //==========================================================================
+
+    feedbackPanel =
+        std::make_unique<FeedbackPanel>();
+
+    addAndMakeVisible(
+        *feedbackPanel);
+
+    feedbackPanel->setVisible(false);
+
+    // IMPORTANT:
+    // Set callbacks AFTER controls have been created.
+    setupSettingCallbacks();
 
     selectPage(Page::general);
+
+    //==========================================================================
+    // AUTO-SCROLL TIMER
+    //==========================================================================
+    //
+    // 30 updates per second gives us very smooth automatic scrolling.
+    //
+    // The actual scroll amount is deliberately tiny so the guide feels
+    // like a professional product manual rather than a fast marquee.
+    //
+    //==========================================================================
+
+    startTimerHz(30);
+
+    //==========================================================================
+    // APPLY CURRENT THEME
+    //==========================================================================
+
+    updateThemeColours();
+}
+
+//==============================================================================
+// DESTRUCTOR
+//==============================================================================
+
+SettingsPanel::~SettingsPanel()
+{
+    //==========================================================================
+    // STOP TIMER
+    //==========================================================================
+
+    stopTimer();
+
+    //==========================================================================
+    // REMOVE LISTENER BEFORE DESTRUCTION
+    //==========================================================================
+
+    ThemeManager::get().removeChangeListener(this);
+}
+
+//==============================================================================
+// SETTING CALLBACKS
+//==============================================================================
+
+void SettingsPanel::setupSettingCallbacks()
+{
+    //==========================================================================
+    // ENABLE PROCESSING
+    //==========================================================================
+
+    enableProcessingToggle.onClick =
+        [this]()
+        {
+            if (onProcessingChanged)
+            {
+                onProcessingChanged(
+                    enableProcessingToggle.getToggleState());
+            }
+        };
+
+    //==========================================================================
+    // UI SCALE
+    //==========================================================================
+
+    uiScaleSelector.onClicked =
+        [this]()
+        {
+            if (onUIScaleChanged)
+            {
+                onUIScaleChanged(
+                    uiScaleSelector.getValue());
+            }
+        };
+
+    //==========================================================================
+    // THEME
+    //==========================================================================
+
+    themeSelector.onClicked =
+        [this]()
+        {
+            const auto theme =
+                themeSelector.getValue();
+
+            syncThemeSelectors(theme);
+
+            if (onThemeChanged)
+                onThemeChanged(theme);
+
+            if (onDisplayThemeChanged)
+                onDisplayThemeChanged(theme);
+        };
+
+    //==========================================================================
+    // DISPLAY THEME
+    //==========================================================================
+
+    displayThemeSelector.onClicked =
+        [this]()
+        {
+            const auto theme =
+                displayThemeSelector.getValue();
+
+            syncThemeSelectors(theme);
+
+            if (onThemeChanged)
+                onThemeChanged(theme);
+
+            if (onDisplayThemeChanged)
+                onDisplayThemeChanged(theme);
+        };
+
+    //==========================================================================
+    // OVERSAMPLING
+    //==========================================================================
+
+    oversamplingSelector.onClicked =
+        [this]()
+        {
+            if (onOversamplingChanged)
+            {
+                onOversamplingChanged(
+                    oversamplingSelector.getValue());
+            }
+        };
+
+    //==========================================================================
+    // PROCESSING QUALITY
+    //==========================================================================
+
+    qualitySelector.onClicked =
+        [this]()
+        {
+            const auto quality =
+                qualitySelector.getValue();
+
+            syncProcessingQualitySelectors(
+                quality);
+
+            if (onProcessingQualityChanged)
+                onProcessingQualityChanged(quality);
+        };
+
+    processingQualitySelector.onClicked =
+        [this]()
+        {
+            const auto quality =
+                processingQualitySelector.getValue();
+
+            syncProcessingQualitySelectors(
+                quality);
+
+            if (onProcessingQualityChanged)
+                onProcessingQualityChanged(quality);
+        };
+
+    //==========================================================================
+    // INPUT METER
+    //==========================================================================
+
+    inputMeterToggle.onClick =
+        [this]()
+        {
+            if (onInputMeterChanged)
+            {
+                onInputMeterChanged(
+                    inputMeterToggle.getToggleState());
+            }
+        };
+
+    //==========================================================================
+    // OUTPUT METER
+    //==========================================================================
+
+    outputMeterToggle.onClick =
+        [this]()
+        {
+            if (onOutputMeterChanged)
+            {
+                onOutputMeterChanged(
+                    outputMeterToggle.getToggleState());
+            }
+        };
+
+    //==========================================================================
+    // TOOLTIPS
+    //==========================================================================
+
+    tooltipsToggle.onClick =
+        [this]()
+        {
+            if (onTooltipsChanged)
+            {
+                onTooltipsChanged(
+                    tooltipsToggle.getToggleState());
+            }
+        };
+
+    //==========================================================================
+    // DISPLAY SCALE
+    //==========================================================================
+
+    displayScaleSelector.onClicked =
+        [this]()
+        {
+            if (onDisplayScaleChanged)
+            {
+                onDisplayScaleChanged(
+                    displayScaleSelector.getValue());
+            }
+        };
+
+    //==========================================================================
+    // CPU MODE
+    //==========================================================================
+
+    cpuModeSelector.onClicked =
+        [this]()
+        {
+            if (onCPUModeChanged)
+            {
+                onCPUModeChanged(
+                    cpuModeSelector.getValue());
+            }
+        };
+}
+
+//==============================================================================
+// THEME CONTROLS
+//==============================================================================
+
+void SettingsPanel::setupThemeControls()
+{
+    const auto themeNames =
+        ThemeManager::getThemeNames();
+
+    themeSelector.setOptions(
+        themeNames);
+
+    displayThemeSelector.setOptions(
+        themeNames);
+
+    const auto currentTheme =
+        ThemeManager::get().getThemeName();
+
+    themeSelector.setValue(
+        currentTheme);
+
+    displayThemeSelector.setValue(
+        currentTheme);
+
+    customizeColoursButton.setButtonText(
+        "CUSTOMIZE COLOURS");
+
+    customizeColoursButton.setMouseCursor(
+        juce::MouseCursor::PointingHandCursor);
+
+    customizeColoursButton.setTooltip(
+        "Create your own custom OFFOR Vocal Pro colour theme.");
+
+    customizeColoursButton.onClick =
+        [this]()
+        {
+            showThemeColorPanel();
+        };
+
+    addAndMakeVisible(
+        customizeColoursButton);
+}
+
+//==============================================================================
+// SHOW THEME COLOR PANEL
+//==============================================================================
+
+void SettingsPanel::showThemeColorPanel()
+{
+    if (themeColorPanel == nullptr)
+    {
+        themeColorPanel =
+            std::make_unique<ThemeColorPanel>();
+
+        themeColorPanel->onClose =
+            [this]()
+            {
+                hideThemeColorPanel();
+            };
+    }
+
+    addAndMakeVisible(
+        *themeColorPanel);
+
+    themeColorPanel->updateDisplay();
+
+    themeColorPanel->toFront(true);
+
+    customColoursVisible = true;
+
+    themeColorPanel->setBounds(
+        getLocalBounds().reduced(25));
+
+    repaint();
+}
+
+//==============================================================================
+// HIDE THEME COLOR PANEL
+//==============================================================================
+
+void SettingsPanel::hideThemeColorPanel()
+{
+    if (themeColorPanel != nullptr)
+        themeColorPanel->setVisible(false);
+
+    customColoursVisible = false;
+
+    repaint();
+}
+
+//==============================================================================
+// THEME CHANGE LISTENER
+//==============================================================================
+
+void SettingsPanel::changeListenerCallback(
+    juce::ChangeBroadcaster* source)
+{
+    if (source != &ThemeManager::get())
+        return;
+
+    const auto theme =
+        ThemeManager::get().getThemeName();
+
+    syncThemeSelectors(
+        theme);
+
+    updateThemeColours();
+
+    if (themeColorPanel != nullptr)
+        themeColorPanel->updateDisplay();
+
+    repaint();
+}
+
+//==============================================================================
+// UPDATE THEME COLOURS
+//==============================================================================
+
+void SettingsPanel::updateThemeColours()
+{
+    const auto colours =
+        ThemeManager::get().getColours();
+
+    //==========================================================================
+    // LABELS
+    //==========================================================================
+
+    juce::Label* labels[] =
+    {
+        &generalTitle,
+        &generalDescription,
+        &pluginBehaviourLabel,
+        &enableProcessingLabel,
+        &interfaceLabel,
+        &uiScaleLabel,
+        &themeLabel,
+
+        &audioTitle,
+        &audioDescription,
+        &inputBehaviourLabel,
+        &inputGainLabel,
+        &processingLabel,
+        &oversamplingLabel,
+        &qualityLabel,
+
+        &displayTitle,
+        &displayDescription,
+        &appearanceLabel,
+        &displayThemeLabel,
+        &displayScaleLabel,
+        &visualLabel,
+        &inputMeterLabel,
+        &outputMeterLabel,
+        &tooltipsLabel,
+
+        &performanceTitle,
+        &performanceDescription,
+        &engineLabel,
+        &cpuLabel,
+        &processingQualityLabel,
+
+        &aboutTitle,
+        &aboutDescription,
+        &productNameLabel,
+        &versionLabel,
+        &companyLabel,
+        &descriptionLabel,
+        &licenseTitleLabel,
+
+        &userGuideTitle,
+        &userGuideDescription
+    };
+
+    for (auto* label : labels)
+    {
+        label->setColour(
+            juce::Label::textColourId,
+            colours.text);
+
+        label->repaint();
+    }
+
+    //==========================================================================
+    // DESCRIPTION / MUTED LABELS
+    //==========================================================================
+
+    generalDescription.setColour(
+        juce::Label::textColourId,
+        colours.muted);
+
+    audioDescription.setColour(
+        juce::Label::textColourId,
+        colours.muted);
+
+    displayDescription.setColour(
+        juce::Label::textColourId,
+        colours.muted);
+
+    performanceDescription.setColour(
+        juce::Label::textColourId,
+        colours.muted);
+
+    aboutDescription.setColour(
+        juce::Label::textColourId,
+        colours.muted);
+
+    versionLabel.setColour(
+        juce::Label::textColourId,
+        colours.muted);
+
+    descriptionLabel.setColour(
+        juce::Label::textColourId,
+        colours.muted);
+
+    userGuideDescription.setColour(
+        juce::Label::textColourId,
+        colours.muted);
+
+    //==========================================================================
+    // SECTION LABELS
+    //==========================================================================
+
+    juce::Label* sectionLabels[] =
+    {
+        &pluginBehaviourLabel,
+        &interfaceLabel,
+        &inputBehaviourLabel,
+        &processingLabel,
+        &appearanceLabel,
+        &visualLabel,
+        &engineLabel,
+        &licenseTitleLabel
+    };
+
+    for (auto* label : sectionLabels)
+    {
+        label->setColour(
+            juce::Label::textColourId,
+            colours.accent);
+
+        label->repaint();
+    }
+
+    //==========================================================================
+    // LICENSE STATUS
+    //==========================================================================
+
+    licenseStatusLabel.setColour(
+        juce::Label::textColourId,
+        colours.success);
+
+    licenseStatusLabel.repaint();
+
+    //==========================================================================
+    // USER GUIDE
+    //==========================================================================
+
+    userGuideContent.setColour(
+        juce::Label::textColourId,
+        colours.text);
+
+    userGuideContent.setColour(
+        juce::Label::backgroundColourId,
+        juce::Colours::transparentBlack);
+
+    userGuideContent.repaint();
+
+    //==========================================================================
+    // BUTTONS
+    //==========================================================================
+
+    customizeColoursButton.setColour(
+        juce::TextButton::buttonColourId,
+        colours.panel2);
+
+    customizeColoursButton.setColour(
+        juce::TextButton::buttonOnColourId,
+        colours.accentDark);
+
+    customizeColoursButton.setColour(
+        juce::TextButton::textColourOffId,
+        colours.text);
+
+    customizeColoursButton.setColour(
+        juce::TextButton::textColourOnId,
+        colours.text);
+
+    customizeColoursButton.repaint();
+
+    websiteButton.setColour(
+        juce::TextButton::buttonColourId,
+        colours.panel2);
+
+    websiteButton.setColour(
+        juce::TextButton::textColourOffId,
+        colours.text);
+
+    websiteButton.repaint();
+
+    supportButton.setColour(
+        juce::TextButton::buttonColourId,
+        colours.panel2);
+
+    supportButton.setColour(
+        juce::TextButton::textColourOffId,
+        colours.text);
+
+    supportButton.repaint();
+
+    //==========================================================================
+    // TOGGLES
+    //==========================================================================
+
+    enableProcessingToggle.repaint();
+    inputMeterToggle.repaint();
+    outputMeterToggle.repaint();
+    tooltipsToggle.repaint();
+
+    //==========================================================================
+    // SELECTORS
+    //==========================================================================
+
+    themeSelector.repaint();
+    displayThemeSelector.repaint();
+
+    uiScaleSelector.repaint();
+    oversamplingSelector.repaint();
+    qualitySelector.repaint();
+    displayScaleSelector.repaint();
+    cpuModeSelector.repaint();
+    processingQualitySelector.repaint();
+
+    //==========================================================================
+    // NAVIGATION
+    //==========================================================================
+
+    generalTab.repaint();
+    audioTab.repaint();
+    displayTab.repaint();
+    performanceTab.repaint();
+    aboutTab.repaint();
+    userGuideTab.repaint();
+
+    closeButton.repaint();\
+
+    feedbackTab.repaint();
+
+    if (feedbackPanel != nullptr)
+        feedbackPanel->updateThemeColours();
+
+    //==========================================================================
+    // PANEL
+    //==========================================================================
+
+    repaint();
+}
+
+//==============================================================================
+// SYNCHRONIZE THEME SELECTORS
+//==============================================================================
+
+void SettingsPanel::syncThemeSelectors(
+    const juce::String& theme)
+{
+    themeSelector.setValue(theme);
+
+    displayThemeSelector.setValue(theme);
+}
+
+//==============================================================================
+// SYNCHRONIZE PROCESSING QUALITY
+//==============================================================================
+
+void SettingsPanel::syncProcessingQualitySelectors(
+    const juce::String& quality)
+{
+    qualitySelector.setValue(quality);
+
+    processingQualitySelector.setValue(
+        quality);
 }
 
 //==============================================================================
@@ -483,6 +1208,8 @@ void SettingsPanel::setupTabs()
     addAndMakeVisible(displayTab);
     addAndMakeVisible(performanceTab);
     addAndMakeVisible(aboutTab);
+    addAndMakeVisible(userGuideTab);
+    addAndMakeVisible(feedbackTab);
 
     generalTab.onClick =
         [this]()
@@ -514,9 +1241,17 @@ void SettingsPanel::setupTabs()
             selectPage(Page::about);
         };
 
-    //==========================================================================
-    // Close
-    //==========================================================================
+    userGuideTab.onClick =
+        [this]()
+        {
+            selectPage(Page::userGuide);
+        };
+
+    feedbackTab.onClick =
+        [this]()
+        {
+            selectPage(Page::feedback);
+        };
 
     addAndMakeVisible(closeButton);
 
@@ -534,10 +1269,6 @@ void SettingsPanel::setupTabs()
 
 void SettingsPanel::setupLabels()
 {
-    //==========================================================================
-    // GENERAL
-    //==========================================================================
-
     configureLabel(
         generalTitle,
         "GENERAL",
@@ -743,7 +1474,8 @@ void SettingsPanel::setupLabels()
 
     configureLabel(
         versionLabel,
-        "Version 1.0.0",
+        "Version"
+        + juce::String(OFFOR_VPRO_VERSION_STRING),
         11.0f,
         mutedColour,
         juce::Justification::centred);
@@ -770,9 +1502,25 @@ void SettingsPanel::setupLabels()
 
     configureLabel(
         licenseStatusLabel,
-        "●  ACTIVATED",
+        "* ACTIVATED",
         12.0f,
         juce::Colour(0xff65c98a));
+
+    //==========================================================================
+    // USER GUIDE
+    //==========================================================================
+
+    configureLabel(
+        userGuideTitle,
+        "USER GUIDE",
+        20.0f,
+        textColour);
+
+    configureLabel(
+        userGuideDescription,
+        "Learn the OFFOR Vocal Pro workflow, controls and recommended techniques.",
+        11.0f,
+        mutedColour);
 }
 
 //==============================================================================
@@ -785,34 +1533,84 @@ void SettingsPanel::setupControls()
     // GENERAL
     //==========================================================================
 
-    addAndMakeVisible(enableProcessingToggle);
+    addAndMakeVisible(
+        enableProcessingToggle);
 
-    addAndMakeVisible(uiScaleSelector);
-    addAndMakeVisible(themeSelector);
+    addAndMakeVisible(
+        uiScaleSelector);
 
-    uiScaleSelector.setValue("100%");
-    themeSelector.setValue("Dark");
+    addAndMakeVisible(
+        themeSelector);
+
+    uiScaleSelector.setOptions(
+    {
+        "75%",
+        "90%",
+        "100%",
+        "110%",
+        "125%",
+        "150%"
+    });
+
+    uiScaleSelector.setValue(
+        "100%");
+
+    //==========================================================================
+    // THEME
+    //==========================================================================
+
+    setupThemeControls();
 
     //==========================================================================
     // AUDIO
     //==========================================================================
 
-    addAndMakeVisible(oversamplingSelector);
-    addAndMakeVisible(qualitySelector);
+    addAndMakeVisible(
+        oversamplingSelector);
 
-    oversamplingSelector.setValue("2X");
-    qualitySelector.setValue("High");
+    addAndMakeVisible(
+        qualitySelector);
+
+    oversamplingSelector.setOptions(
+    {
+        "Off",
+        "2X",
+        "4X",
+        "8X"
+    });
+
+    oversamplingSelector.setValue(
+        "2X");
+
+    qualitySelector.setOptions(
+    {
+        "Low",
+        "Medium",
+        "High",
+        "Ultra"
+    });
+
+    qualitySelector.setValue(
+        "High");
 
     //==========================================================================
     // DISPLAY
     //==========================================================================
 
-    addAndMakeVisible(inputMeterToggle);
-    addAndMakeVisible(outputMeterToggle);
-    addAndMakeVisible(tooltipsToggle);
+    addAndMakeVisible(
+        inputMeterToggle);
 
-    addAndMakeVisible(displayThemeSelector);
-    addAndMakeVisible(displayScaleSelector);
+    addAndMakeVisible(
+        outputMeterToggle);
+
+    addAndMakeVisible(
+        tooltipsToggle);
+
+    addAndMakeVisible(
+        displayThemeSelector);
+
+    addAndMakeVisible(
+        displayScaleSelector);
 
     inputMeterToggle.setToggleState(
         true,
@@ -826,8 +1624,52 @@ void SettingsPanel::setupControls()
         true,
         juce::dontSendNotification);
 
-    displayThemeSelector.setValue("Dark");
-    displayScaleSelector.setValue("100%");
+    displayThemeSelector.setValue(
+        ThemeManager::get().getThemeName());
+
+    displayScaleSelector.setOptions(
+    {
+        "75%",
+        "90%",
+        "100%",
+        "110%",
+        "125%",
+        "150%"
+    });
+
+    displayScaleSelector.setValue(
+        "100%");
+
+    //==========================================================================
+    // PERFORMANCE
+    //==========================================================================
+
+    addAndMakeVisible(
+        cpuModeSelector);
+
+    addAndMakeVisible(
+        processingQualitySelector);
+
+    cpuModeSelector.setOptions(
+    {
+        "Balanced",
+        "Performance",
+        "Low CPU"
+    });
+
+    cpuModeSelector.setValue(
+        "Balanced");
+
+    processingQualitySelector.setOptions(
+    {
+        "Low",
+        "Medium",
+        "High",
+        "Ultra"
+    });
+
+    processingQualitySelector.setValue(
+        "High");
 }
 
 //==============================================================================
@@ -836,8 +1678,11 @@ void SettingsPanel::setupControls()
 
 void SettingsPanel::setupAboutPage()
 {
-    addAndMakeVisible(websiteButton);
-    addAndMakeVisible(supportButton);
+    addAndMakeVisible(
+        websiteButton);
+
+    addAndMakeVisible(
+        supportButton);
 
     websiteButton.setButtonText(
         "VISIT WEBSITE");
@@ -851,66 +1696,624 @@ void SettingsPanel::setupAboutPage()
     supportButton.setMouseCursor(
         juce::MouseCursor::PointingHandCursor);
 
-    //--------------------------------------------------------------------------
-    // These URLs can be connected later.
-    //--------------------------------------------------------------------------
-
     websiteButton.onClick =
         []
         {
             juce::URL(
-                "https://chechris.com"
-            ).launchInDefaultBrowser();
+                "https://chechris.com/software")
+                .launchInDefaultBrowser();
         };
 
     supportButton.onClick =
         []
         {
             juce::URL(
-                "https://ko-fi.com/"
-            ).launchInDefaultBrowser();
+                "https://ko-fi.com/chechris")
+                .launchInDefaultBrowser();
         };
 }
 
 //==============================================================================
-// CONFIGURE LABEL
+// USER GUIDE
+//==============================================================================
+//
+// This is the complete built-in OFFOR Vocal Pro guide.
+//
+// The text is deliberately written for a producer rather than as a
+// programming/manual document. It explains what each section does,
+// how to approach the plugin and how to build a vocal chain.
+//
 //==============================================================================
 
-void SettingsPanel::configureLabel(
-    juce::Label& label,
-    const juce::String& text,
-    float fontSize,
-    juce::Colour colour,
-    juce::Justification justification)
+void SettingsPanel::setupUserGuide()
 {
-    addAndMakeVisible(label);
+    //==========================================================================
+    // VIEWPORT
+    //==========================================================================
 
-    label.setText(
-        text,
+    userGuideViewport.setScrollBarsShown(
+        false,
+        false);
+
+    userGuideViewport.setScrollOnDragEnabled(
+        true);
+
+    userGuideViewport.setViewedComponent(
+        &userGuideContent,
+        false);
+
+    userGuideViewport.setWantsKeyboardFocus(
+        false);
+
+    userGuideViewport.setMouseCursor(
+        juce::MouseCursor::NormalCursor);
+
+    addAndMakeVisible(
+        userGuideViewport);
+
+    //==========================================================================
+    // GUIDE CONTENT
+    //==========================================================================
+
+    userGuideContent.setText(
+        getUserGuideText(),
         juce::dontSendNotification);
 
-    label.setColour(
-        juce::Label::textColourId,
-        colour);
-
-    label.setJustificationType(
-        justification);
-
-    label.setFont(
+    userGuideContent.setFont(
         juce::Font(
             juce::FontOptions{}
                 .withName("Poppins")
-                .withHeight(fontSize)
+                .withHeight(11.5f)
                 .withStyle("Medium")));
+
+    userGuideContent.setJustificationType(
+        juce::Justification::topLeft);
+
+    userGuideContent.setBorderSize(
+        juce::BorderSize<int>(
+            18,
+            22,
+            30,
+            22));
+
+    userGuideContent.setInterceptsMouseClicks(
+        false,
+        false);
+
+    userGuideContent.setColour(
+        juce::Label::backgroundColourId,
+        juce::Colours::transparentBlack);
+
+    //==========================================================================
+    // MOUSE LISTENER
+    //==========================================================================
+    //
+    // Listening to the viewport allows us to pause automatic scrolling when
+    // the user moves the mouse into the guide.
+    //
+    //==========================================================================
+
+    userGuideViewport.addMouseListener(
+        this,
+        true);
+
+    resetUserGuideScroll();
+}
+
+//==============================================================================
+// USER GUIDE CONTENT
+//==============================================================================
+
+juce::String SettingsPanel::getUserGuideText() const
+{
+    return
+        "WELCOME TO OFFOR VOCAL PRO\n"
+        "\n"
+        "Professional vocal processing designed for fast, creative and "
+        "controlled vocal production.\n"
+        "\n"
+        "OFFOR Vocal Pro gives you a complete environment for shaping a "
+        "vocal from clean input to a finished production sound.\n"
+        "\n"
+        "\n"
+        "GETTING STARTED\n"
+        "\n"
+        "Start with a clean vocal recording and place OFFOR Vocal Pro on "
+        "your vocal track or vocal bus.\n"
+        "\n"
+        "Begin with the main controls and make small adjustments. "
+        "The goal is not to use every control heavily. The goal is to "
+        "build the sound you actually need.\n"
+        "\n"
+        "\n"
+        "MAIN CONTROLS\n"
+        "\n"
+        "INPUT\n"
+        "Controls the level entering the processing chain. Use it to "
+        "set a sensible level before applying heavy processing.\n"
+        "\n"
+        "VOCAL BOOST\n"
+        "Controls the overall intensity of the vocal enhancement. "
+        "Increase it gradually until the vocal becomes more present "
+        "without sounding unnatural.\n"
+        "\n"
+        "MIX\n"
+        "Blends the processed vocal with the original signal. This is "
+        "useful when you want the character of the processing while "
+        "keeping some of the natural vocal.\n"
+        "\n"
+        "WARMTH\n"
+        "Adds warmth and body to the vocal character.\n"
+        "\n"
+        "BODY\n"
+        "Controls additional low-mid vocal presence and weight.\n"
+        "\n"
+        "AIR\n"
+        "Adds high-frequency openness and vocal brightness.\n"
+        "\n"
+        "DRIVE\n"
+        "Adds harmonic character and saturation. Use carefully for "
+        "more aggressive or intimate vocal tones.\n"
+        "\n"
+        "COMPRESS\n"
+        "Controls the amount of dynamic control applied to the vocal.\n"
+        "\n"
+        "DE-ESS\n"
+        "Reduces excessive sibilance such as strong S, SH and T sounds.\n"
+        "\n"
+        "OUTPUT\n"
+        "Controls the final output level after processing. Always check "
+        "your output level when increasing processing intensity.\n"
+        "\n"
+        "\n"
+        "TUNER\n"
+        "\n"
+        "The tuner section is designed to help control vocal pitch and "
+        "pitch movement.\n"
+        "\n"
+        "RETUNE\n"
+        "Controls how quickly the vocal pitch moves toward the detected "
+        "target note. Faster settings produce a more obvious correction "
+        "effect, while slower settings can retain more natural movement.\n"
+        "\n"
+        "SMOOTH\n"
+        "Controls the smoothness of pitch movement. Use it to reduce "
+        "unnatural or abrupt transitions.\n"
+        "\n"
+        "FORMANT\n"
+        "Adjusts the vocal character independently from the detected "
+        "pitch. This can change the perceived vocal character while "
+        "keeping the pitch treatment separate.\n"
+        "\n"
+        "\n"
+        "DOUBLER\n"
+        "\n"
+        "The doubler creates the impression of additional vocal takes "
+        "around the original performance.\n"
+        "\n"
+        "AMOUNT\n"
+        "Controls how much doubled voice is generated.\n"
+        "\n"
+        "DETUNE\n"
+        "Controls pitch difference between the doubled voices.\n"
+        "\n"
+        "TIMING\n"
+        "Controls timing variation between the original and doubled "
+        "voices.\n"
+        "\n"
+        "WIDTH\n"
+        "Controls stereo spread of the doubled voices.\n"
+        "\n"
+        "MIX\n"
+        "Controls how much of the doubler is blended into the final sound.\n"
+        "\n"
+        "\n"
+        "HARMONY\n"
+        "\n"
+        "Harmony creates additional vocal voices based on the selected "
+        "intervals.\n"
+        "\n"
+        "VOICE 1 - 4\n"
+        "Select the harmony interval for each additional voice.\n"
+        "\n"
+        "MIX\n"
+        "Controls the overall harmony level.\n"
+        "\n"
+        "TIP\n"
+        "Harmony normally works best when used as a supporting layer "
+        "rather than overpowering the lead vocal.\n"
+        "\n"
+        "\n"
+        "CREATIVE FX\n"
+        "\n"
+        "Creative FX are designed for additional vocal character and "
+        "sound-design possibilities.\n"
+        "\n"
+        "Select an effect and adjust its AMOUNT and MIX controls.\n"
+        "\n"
+        "Use Creative FX for transitions, ad-libs, hooks, special vocal "
+        "moments and other creative production elements.\n"
+        "\n"
+        "\n"
+        "SPACE\n"
+        "\n"
+        "The Space section adds ambience and depth around the vocal.\n"
+        "\n"
+        "SIZE\n"
+        "Controls the perceived size of the space.\n"
+        "\n"
+        "DECAY\n"
+        "Controls how long the space continues after the vocal signal.\n"
+        "\n"
+        "PRE-DELAY\n"
+        "Controls the delay before the space effect becomes audible. "
+        "More pre-delay can help keep the lead vocal clear in front of "
+        "the effect.\n"
+        "\n"
+        "DAMPING\n"
+        "Controls high-frequency absorption inside the space.\n"
+        "\n"
+        "MIX\n"
+        "Controls the amount of Space effect blended into the final sound.\n"
+        "\n"
+        "\n"
+        "PRESETS\n"
+        "\n"
+        "Use the PRESET selector in the main header to choose a factory "
+        "preset.\n"
+        "\n"
+        "To access preset file operations, open the small (...) menu beside "
+        "the preset selector.\n"
+        "\n"
+        "LOAD PRESET\n"
+        "Loads a previously saved OFFOR Vocal Pro preset file.\n"
+        "\n"
+        "SAVE PRESET\n"
+        "Saves the current plugin state so it can be loaded again later.\n"
+        "\n"
+        "TIP\n"
+        "Save useful vocal chains as presets. This can significantly speed "
+        "up repetitive production work.\n"
+        "\n"
+        "\n"
+        "A / B COMPARISON\n"
+        "\n"
+        "The A and B buttons allow quick comparison between two processing "
+        "states.\n"
+        "\n"
+        "Use A/B while making important processing decisions. If the "
+        "processed version sounds louder, remember that louder can easily "
+        "be perceived as better.\n"
+        "\n"
+        "Match levels when comparing whenever possible.\n"
+        "\n"
+        "\n"
+        "SETTINGS\n"
+        "\n"
+        "GENERAL\n"
+        "\n"
+        "ENABLE PROCESSING\n"
+        "Turns the main processing engine on or off.\n"
+        "\n"
+        "UI SCALE\n"
+        "Changes the size of the OFFOR Vocal Pro interface.\n"
+        "\n"
+        "THEME\n"
+        "Selects the visual theme used by the plugin.\n"
+        "\n"
+        "CUSTOMIZE COLOURS\n"
+        "Allows you to create your own custom OFFOR Vocal Pro colour theme.\n"
+        "\n"
+        "\n"
+        "AUDIO\n"
+        "\n"
+        "OVERSAMPLING\n"
+        "Higher oversampling can improve the quality of certain nonlinear "
+        "processing operations, but may increase CPU usage.\n"
+        "\n"
+        "OFF\n"
+        "Lowest additional CPU cost.\n"
+        "\n"
+        "2X\n"
+        "A balanced oversampling setting for normal production work.\n"
+        "\n"
+        "4X\n"
+        "Higher processing resolution with increased CPU usage.\n"
+        "\n"
+        "8X\n"
+        "Highest available oversampling setting with the greatest CPU cost.\n"
+        "\n"
+        "PROCESSING QUALITY\n"
+        "Controls the processing quality profile used by the plugin.\n"
+        "\n"
+        "\n"
+        "DISPLAY\n"
+        "\n"
+        "THEME\n"
+        "Controls the visual appearance of the plugin interface.\n"
+        "\n"
+        "UI SCALE\n"
+        "Changes the size of the plugin interface.\n"
+        "\n"
+        "SHOW INPUT METER\n"
+        "Shows or hides the input level meter.\n"
+        "\n"
+        "SHOW OUTPUT METER\n"
+        "Shows or hides the output level meter.\n"
+        "\n"
+        "SHOW TOOLTIPS\n"
+        "Enables or disables control tooltips.\n"
+        "\n"
+        "\n"
+        "PERFORMANCE\n"
+        "\n"
+        "CPU MODE\n"
+        "Controls the balance between CPU usage and processing performance.\n"
+        "\n"
+        "LOW CPU\n"
+        "Designed for systems where processor usage needs to be minimized.\n"
+        "\n"
+        "BALANCED\n"
+        "Designed as the normal everyday production mode.\n"
+        "\n"
+        "PERFORMANCE\n"
+        "Prioritizes processing performance where additional CPU usage is "
+        "acceptable.\n"
+        "\n"
+        "PROCESSING QUALITY\n"
+        "Provides additional control over the processing quality profile.\n"
+        "\n"
+        "\n"
+        "RECOMMENDED VOCAL WORKFLOW\n"
+        "\n"
+        "1. Load your vocal into your DAW.\n"
+        "\n"
+        "2. Insert OFFOR Vocal Pro on the vocal track or vocal bus.\n"
+        "\n"
+        "3. Set INPUT to a sensible level.\n"
+        "\n"
+        "4. Start with a small amount of VOCAL BOOST.\n"
+        "\n"
+        "5. Adjust WARMTH, BODY and AIR to shape the vocal character.\n"
+        "\n"
+        "6. Add COMPRESS to control vocal dynamics.\n"
+        "\n"
+        "7. Use DE-ESS if the vocal contains excessive sibilance.\n"
+        "\n"
+        "8. Use TUNER when pitch correction or pitch shaping is required.\n"
+        "\n"
+        "9. Add DOUBLER or HARMONY when additional vocal layers are needed.\n"
+        "\n"
+        "10. Use CREATIVE FX for special vocal moments.\n"
+        "\n"
+        "11. Add SPACE for depth and ambience.\n"
+        "\n"
+        "12. Adjust MIX and OUTPUT to keep the final result controlled.\n"
+        "\n"
+        "13. Compare your result using A/B.\n"
+        "\n"
+        "14. Save the finished chain as a preset when you have a sound you "
+        "want to reuse.\n"
+        "\n"
+        "\n"
+        "PRODUCTION TIPS\n"
+        "\n"
+        "START SMALL\n"
+        "Small changes often sound more natural than extreme processing.\n"
+        "\n"
+        "USE MIX CONTROLS\n"
+        "Parallel-style blending can help retain the natural character of "
+        "the original vocal.\n"
+        "\n"
+        "WATCH YOUR LEVELS\n"
+        "Avoid judging processing only by loudness. Match levels when "
+        "comparing processed and unprocessed signals.\n"
+        "\n"
+        "USE A/B OFTEN\n"
+        "Regular comparison helps you decide whether each processing stage "
+        "is actually improving the vocal.\n"
+        "\n"
+        "WATCH CPU USAGE\n"
+        "Higher processing quality, oversampling and complex processing "
+        "can increase CPU usage.\n"
+        "\n"
+        "SAVE YOUR SOUNDS\n"
+        "When you create a useful vocal chain, save it as a preset so you "
+        "do not have to rebuild it from scratch.\n"
+        "\n"
+        "\n"
+        "TROUBLESHOOTING\n"
+        "\n"
+        "VOCAL SOUNDS TOO PROCESSED\n"
+        "Reduce VOCAL BOOST, DRIVE, COMPRESS or other intensive processing. "
+        "You can also reduce the overall effect using MIX controls.\n"
+        "\n"
+        "VOCAL SOUNDS TOO BRIGHT\n"
+        "Reduce AIR or other high-frequency enhancement and check DE-ESS.\n"
+        "\n"
+        "VOCAL SOUNDS TOO DARK\n"
+        "Try increasing AIR carefully or reducing excessive damping in "
+        "the Space section.\n"
+        "\n"
+        "VOCAL FEELS TOO WIDE\n"
+        "Reduce DOUBLER WIDTH or the amount of additional stereo processing.\n"
+        "\n"
+        "CPU USAGE IS HIGH\n"
+        "Try reducing oversampling, processing quality or switching CPU "
+        "MODE to a lower-CPU setting.\n"
+        "\n"
+        "\n"
+        "FINAL TIP\n"
+        "\n"
+        "OFFOR Vocal Pro is designed to give you control, not force you "
+        "into one sound.\n"
+        "\n"
+        "Start with the natural vocal. Build the processing gradually. "
+        "Use your ears, compare often and stop processing when the vocal "
+        "already sounds right.\n"
+        "\n"
+        "\n"
+        "OFFOR VOCAL PRO\n"
+        "ONNTECH\n"
+        "OFFOR AUDIO\n"
+        "\n"
+        "Thank you for using OFFOR Vocal Pro.";
+}
+
+//==============================================================================
+// RESET USER GUIDE SCROLL
+//==============================================================================
+
+void SettingsPanel::resetUserGuideScroll()
+{
+    userGuideScrollPosition = 0.0f;
+    userGuideIdleCounter = 0;
+
+    if (userGuideViewport.getViewedComponent() != nullptr)
+    {
+        userGuideViewport.setViewPosition(
+            0,
+            0);
+    }
+}
+
+//==============================================================================
+// UPDATE USER GUIDE LAYOUT
+//==============================================================================
+
+void SettingsPanel::updateUserGuideLayout()
+{
+    const int viewportWidth =
+        userGuideViewport.getWidth();
+
+    const int viewportHeight =
+        userGuideViewport.getHeight();
+
+    if (viewportWidth <= 0 ||
+        viewportHeight <= 0)
+        return;
+
+    //==========================================================================
+    // Calculate a deliberately tall content area.
+    //
+    // The Label wraps its text according to this width.
+    //
+    // The extra height allows the complete guide to scroll vertically.
+    //==========================================================================
+
+    const int contentWidth =
+        juce::jmax(
+            100,
+            viewportWidth);
+
+    const int contentHeight =
+        4300;
+
+    userGuideContent.setBounds(
+        0,
+        0,
+        contentWidth,
+        contentHeight);
+
+    juce::ignoreUnused(
+        viewportHeight);
+}
+
+//==============================================================================
+// TIMER
+//==============================================================================
+//
+// Automatic guide scrolling.
+//
+// The scroll is intentionally slow:
+//
+//      30 timer updates / second
+//      0.12 pixels / update
+//
+// This produces approximately 3.6 pixels per second.
+//
+// The user can interrupt it by moving the mouse into the guide.
+//
+//==============================================================================
+
+void SettingsPanel::timerCallback()
+{
+    if (currentPage != Page::userGuide)
+        return;
+
+    if (! userGuideViewport.isVisible())
+        return;
+
+    //==========================================================================
+    // Pause while the user is reading/interacting.
+    //==========================================================================
+
+    if (userGuideMouseOver)
+    {
+        userGuideIdleCounter = 0;
+        return;
+    }
+
+    //==========================================================================
+    // Small delay before scrolling resumes.
+    //==========================================================================
+
+    if (userGuideIdleCounter < 45)
+    {
+        ++userGuideIdleCounter;
+        return;
+    }
+
+    //==========================================================================
+    // Calculate maximum scroll.
+    //==========================================================================
+
+    const auto* content =
+        userGuideViewport.getViewedComponent();
+
+    if (content == nullptr)
+        return;
+
+    const int maxScroll =
+        juce::jmax(
+            0,
+            content->getHeight()
+            - userGuideViewport.getHeight());
+
+    if (maxScroll <= 0)
+        return;
+
+    //==========================================================================
+    // AUTO SCROLL
+    //==========================================================================
+
+    userGuideScrollPosition += 0.12f;
+
+    //==========================================================================
+    // LOOP BACK TO TOP
+    //==========================================================================
+
+    if (userGuideScrollPosition >=
+        static_cast<float>(maxScroll))
+    {
+        userGuideScrollPosition = 0.0f;
+    }
+
+    userGuideViewport.setViewPosition(
+        0,
+        static_cast<int>(
+            userGuideScrollPosition));
 }
 
 //==============================================================================
 // SELECT PAGE
 //==============================================================================
 
-void SettingsPanel::selectPage(Page page)
+void SettingsPanel::selectPage(
+    Page page)
 {
-    currentPage = page;
+    currentPage =
+        page;
 
     generalTab.setSelected(
         page == Page::general);
@@ -927,7 +2330,26 @@ void SettingsPanel::selectPage(Page page)
     aboutTab.setSelected(
         page == Page::about);
 
+    userGuideTab.setSelected(
+        page == Page::userGuide);
+
+    feedbackTab.setSelected(
+        page == Page::feedback);
+
+    //==========================================================================
+    // Whenever the User Guide is opened, start it from the beginning.
+    //==========================================================================
+
+    if (page == Page::userGuide)
+    {
+        resetUserGuideScroll();
+
+        userGuideIdleCounter = 45;
+    }
+
     updatePageVisibility();
+
+    resized();
 
     repaint();
 }
@@ -953,6 +2375,12 @@ void SettingsPanel::updatePageVisibility()
     const bool about =
         currentPage == Page::about;
 
+    const bool userGuide =
+        currentPage == Page::userGuide;
+
+    const bool feedback =
+        currentPage == Page::feedback;
+
     //==========================================================================
     // GENERAL
     //==========================================================================
@@ -967,6 +2395,7 @@ void SettingsPanel::updatePageVisibility()
     themeLabel.setVisible(general);
     uiScaleSelector.setVisible(general);
     themeSelector.setVisible(general);
+    customizeColoursButton.setVisible(general);
 
     //==========================================================================
     // AUDIO
@@ -1027,6 +2456,23 @@ void SettingsPanel::updatePageVisibility()
     licenseStatusLabel.setVisible(about);
     websiteButton.setVisible(about);
     supportButton.setVisible(about);
+
+    //==========================================================================
+    // USER GUIDE
+    //==========================================================================
+
+    userGuideTitle.setVisible(userGuide);
+    userGuideDescription.setVisible(userGuide);
+    userGuideViewport.setVisible(userGuide);
+
+
+    //==========================================================================
+    // FEEDBACK
+    //==========================================================================
+
+    if (feedbackPanel != nullptr)
+        feedbackPanel->setVisible(
+            feedback);
 }
 
 //==============================================================================
@@ -1044,6 +2490,55 @@ void SettingsPanel::drawPageHeader(
         description);
 }
 
+
+//==============================================================================
+// CONFIGURE LABEL
+//==============================================================================
+//
+// Central helper used throughout SettingsPanel.
+//
+// Keeps label configuration consistent:
+//
+//      - Text
+//      - Font size
+//      - Text colour
+//      - Justification
+//      - Transparent background
+//      - No outline
+//
+//==============================================================================
+
+void SettingsPanel::configureLabel(
+    juce::Label& label,
+    const juce::String& text,
+    float fontSize,
+    juce::Colour colour,
+    juce::Justification justification)
+{
+    label.setText(
+        text,
+        juce::dontSendNotification);
+
+    label.setFont(
+        juce::Font(fontSize));
+
+    label.setColour(
+        juce::Label::textColourId,
+        colour);
+
+    label.setJustificationType(
+        justification);
+
+    label.setColour(
+        juce::Label::backgroundColourId,
+        juce::Colours::transparentBlack);
+
+    label.setColour(
+        juce::Label::outlineColourId,
+        juce::Colours::transparentBlack);
+}
+
+
 //==============================================================================
 // DRAW SECTION LINE
 //==============================================================================
@@ -1052,8 +2547,11 @@ void SettingsPanel::drawSectionLine(
     juce::Graphics& g,
     int y)
 {
+    const auto colours =
+        ThemeManager::get().getColours();
+
     g.setColour(
-        borderColour);
+        colours.border);
 
     g.drawHorizontalLine(
         y,
@@ -1088,36 +2586,31 @@ void SettingsPanel::drawSettingRow(
 void SettingsPanel::paint(
     juce::Graphics& g)
 {
+    const auto colours =
+        ThemeManager::get().getColours();
+
     //==========================================================================
-    // Entire background
+    // BACKGROUND
     //==========================================================================
 
     g.fillAll(
-        backgroundColour);
+        colours.background);
 
     auto bounds =
         getLocalBounds().toFloat();
-
-    //==========================================================================
-    // Main settings panel
-    //==========================================================================
 
     auto panel =
         bounds.reduced(1.0f);
 
     g.setColour(
-        panelColour);
+        colours.panel);
 
     g.fillRoundedRectangle(
         panel,
         12.0f);
 
-    //==========================================================================
-    // Border
-    //==========================================================================
-
     g.setColour(
-        borderColour);
+        colours.border);
 
     g.drawRoundedRectangle(
         panel.reduced(0.5f),
@@ -1125,11 +2618,11 @@ void SettingsPanel::paint(
         1.0f);
 
     //==========================================================================
-    // Header separator
+    // HEADER LINE
     //==========================================================================
 
     g.setColour(
-        borderColour);
+        colours.border);
 
     g.drawHorizontalLine(
         70,
@@ -1138,7 +2631,7 @@ void SettingsPanel::paint(
             getWidth() - 20));
 
     //==========================================================================
-    // Header title
+    // SETTINGS TITLE
     //==========================================================================
 
     g.setFont(
@@ -1149,7 +2642,7 @@ void SettingsPanel::paint(
                 .withStyle("Bold")));
 
     g.setColour(
-        textColour);
+        colours.text);
 
     g.drawText(
         "SETTINGS",
@@ -1161,7 +2654,7 @@ void SettingsPanel::paint(
         false);
 
     //==========================================================================
-    // Product subtitle
+    // PRODUCT
     //==========================================================================
 
     g.setFont(
@@ -1172,7 +2665,7 @@ void SettingsPanel::paint(
                 .withStyle("Medium")));
 
     g.setColour(
-        mutedColour);
+        colours.muted);
 
     g.drawText(
         "OFFOR VOCAL PRO",
@@ -1184,11 +2677,11 @@ void SettingsPanel::paint(
         false);
 
     //==========================================================================
-    // Navigation separator
+    // NAVIGATION DIVIDER
     //==========================================================================
 
     g.setColour(
-        borderColour);
+        colours.border);
 
     g.drawHorizontalLine(
         115,
@@ -1197,117 +2690,164 @@ void SettingsPanel::paint(
             getWidth() - 20));
 
     //==========================================================================
-    // Page content background
+    // CONTENT PANEL
     //==========================================================================
 
     g.setColour(
-        panelColour.withAlpha(0.55f));
+        colours.panel.withAlpha(0.55f));
 
     g.fillRoundedRectangle(
         20.0f,
         126.0f,
-        static_cast<float>(getWidth() - 40),
-        static_cast<float>(getHeight() - 146),
+        static_cast<float>(
+            getWidth() - 40),
+        static_cast<float>(
+            getHeight() - 146),
         8.0f);
 
-    //==========================================================================
-    // Subtle page border
-    //==========================================================================
-
     g.setColour(
-        borderColour.withAlpha(0.45f));
+        colours.border.withAlpha(0.45f));
 
     g.drawRoundedRectangle(
         20.0f,
         126.0f,
-        static_cast<float>(getWidth() - 40),
-        static_cast<float>(getHeight() - 146),
+        static_cast<float>(
+            getWidth() - 40),
+        static_cast<float>(
+            getHeight() - 146),
         8.0f,
         1.0f);
 
     //==========================================================================
-    // General page
+    // PAGE DIVIDERS
     //==========================================================================
 
     if (currentPage == Page::general)
     {
-        g.setColour(borderColour);
+        g.setColour(
+            colours.border);
 
         g.drawHorizontalLine(
             250,
             40.0f,
-            static_cast<float>(getWidth() - 40));
+            static_cast<float>(
+                getWidth() - 40));
 
         g.drawHorizontalLine(
             365,
             40.0f,
-            static_cast<float>(getWidth() - 40));
+            static_cast<float>(
+                getWidth() - 40));
     }
-
-    //==========================================================================
-    // Audio page
-    //==========================================================================
 
     if (currentPage == Page::audio)
     {
-        g.setColour(borderColour);
+        g.setColour(
+            colours.border);
 
         g.drawHorizontalLine(
             250,
             40.0f,
-            static_cast<float>(getWidth() - 40));
+            static_cast<float>(
+                getWidth() - 40));
 
         g.drawHorizontalLine(
             365,
             40.0f,
-            static_cast<float>(getWidth() - 40));
+            static_cast<float>(
+                getWidth() - 40));
     }
-
-    //==========================================================================
-    // Display page
-    //==========================================================================
 
     if (currentPage == Page::display)
     {
-        g.setColour(borderColour);
+        g.setColour(
+            colours.border);
 
         g.drawHorizontalLine(
             250,
             40.0f,
-            static_cast<float>(getWidth() - 40));
+            static_cast<float>(
+                getWidth() - 40));
 
         g.drawHorizontalLine(
             365,
             40.0f,
-            static_cast<float>(getWidth() - 40));
+            static_cast<float>(
+                getWidth() - 40));
     }
-
-    //==========================================================================
-    // Performance page
-    //==========================================================================
 
     if (currentPage == Page::performance)
     {
-        g.setColour(borderColour);
+        g.setColour(
+            colours.border);
 
         g.drawHorizontalLine(
             250,
             40.0f,
-            static_cast<float>(getWidth() - 40));
+            static_cast<float>(
+                getWidth() - 40));
     }
-
-    //==========================================================================
-    // About page
-    //==========================================================================
 
     if (currentPage == Page::about)
     {
-        g.setColour(borderColour);
+        g.setColour(
+            colours.border);
 
         g.drawHorizontalLine(
             360,
             70.0f,
-            static_cast<float>(getWidth() - 70));
+            static_cast<float>(
+                getWidth() - 70));
+    }
+
+    //==========================================================================
+    // USER GUIDE
+    //==========================================================================
+    //
+    // The guide itself is a child component, so there is intentionally no
+    // additional text painted here.
+    //
+    //==========================================================================
+
+    if (currentPage == Page::userGuide)
+    {
+        g.setColour(
+            colours.border.withAlpha(0.35f));
+
+        g.drawRoundedRectangle(
+            30.0f,
+            142.0f,
+            static_cast<float>(
+                getWidth() - 60),
+            static_cast<float>(
+                getHeight() - 160),
+            7.0f,
+            1.0f);
+    }
+
+    //==========================================================================
+    // FEEDBACK
+    //==========================================================================
+    //
+    // FeedbackPanel paints its own controls.
+    // We only draw the surrounding page border here.
+    //
+    //==========================================================================
+
+    if (currentPage == Page::feedback)
+    {
+        g.setColour(
+            colours.border.withAlpha(0.35f));
+
+        g.drawRoundedRectangle(
+            30.0f,
+            142.0f,
+            static_cast<float>(
+                getWidth() - 60),
+            static_cast<float>(
+                getHeight() - 160),
+            7.0f,
+            1.0f);
     }
 }
 
@@ -1317,8 +2857,11 @@ void SettingsPanel::paint(
 
 void SettingsPanel::resized()
 {
-    const int width = getWidth();
-    const int height = getHeight();
+    const int width =
+        getWidth();
+
+    const int height =
+        getHeight();
 
     //==========================================================================
     // HEADER
@@ -1332,23 +2875,39 @@ void SettingsPanel::resized()
 
     //==========================================================================
     // TOP NAVIGATION
+    //==========================================================================
     //
-    // This is intentionally horizontal.
-    // It gives Settings its own identity and keeps the main plugin's
-    // module navigation completely separate.
+    // There are now SEVEN tabs:
+    //
+    // GENERAL
+    // AUDIO
+    // DISPLAY
+    // PERFORMANCE
+    // ABOUT
+    // USER GUIDE
+    //
+    // The tabs automatically share the available width.
+    //
     //==========================================================================
 
-    const int navigationY = 77;
-    const int navigationHeight = 35;
+    const int navigationY =
+        77;
 
-    const int navigationLeft = 35;
-    const int navigationRight = width - 35;
+    const int navigationHeight =
+        35;
+
+    const int navigationLeft =
+        30;
+
+    const int navigationRight =
+        width - 30;
 
     const int navigationWidth =
-        navigationRight - navigationLeft;
+        navigationRight -
+        navigationLeft;
 
     const int tabWidth =
-        navigationWidth / 5;
+        navigationWidth / 7;
 
     generalTab.setBounds(
         navigationLeft + tabWidth * 0,
@@ -1380,15 +2939,33 @@ void SettingsPanel::resized()
         tabWidth,
         navigationHeight);
 
+    userGuideTab.setBounds(
+        navigationLeft + tabWidth * 5,
+        navigationY,
+        navigationWidth - (tabWidth * 5),
+        navigationHeight);
+        
+    feedbackTab.setBounds(
+        navigationLeft + tabWidth * 6,
+        navigationY,
+        navigationWidth - (tabWidth * 6),
+        navigationHeight);
+
     //==========================================================================
     // PAGE CONTENT
     //==========================================================================
 
-    const int left = 50;
-    const int right = width - 50;
+    const int left =
+        50;
 
-    const int selectorWidth = 150;
-    const int selectorHeight = 34;
+    const int right =
+        width - 50;
+
+    const int selectorWidth =
+        150;
+
+    const int selectorHeight =
+        34;
 
     //==========================================================================
     // GENERAL
@@ -1453,6 +3030,12 @@ void SettingsPanel::resized()
         435,
         selectorWidth,
         selectorHeight);
+
+    customizeColoursButton.setBounds(
+        right - selectorWidth,
+        478,
+        selectorWidth,
+        34);
 
     //==========================================================================
     // AUDIO
@@ -1697,4 +3280,62 @@ void SettingsPanel::resized()
         480,
         120,
         38);
+
+    //==========================================================================
+    // USER GUIDE
+    //==========================================================================
+
+    userGuideTitle.setBounds(
+        left,
+        145,
+        300,
+        30);
+
+    userGuideDescription.setBounds(
+        left,
+        176,
+        right - left,
+        22);
+
+    userGuideViewport.setBounds(
+        32,
+        205,
+        width - 64,
+        height - 225);
+
+
+
+    //==========================================================================
+    // FEEDBACK
+    //==========================================================================
+    //
+    // FeedbackPanel handles its own internal controls.
+    // SettingsPanel only gives it the available page area.
+    //
+    //==========================================================================
+
+    if (feedbackPanel != nullptr)
+    {
+        feedbackPanel->setBounds(
+            left,
+            145,
+            right - left,
+            height - 175);
+    }
+
+    updateUserGuideLayout();
+
+
+
+    //==========================================================================
+    // CUSTOM COLOUR PANEL
+    //==========================================================================
+
+    if (themeColorPanel != nullptr)
+    {
+        themeColorPanel->setBounds(
+            getLocalBounds().reduced(25));
+    }
+
+    juce::ignoreUnused(height);
 }

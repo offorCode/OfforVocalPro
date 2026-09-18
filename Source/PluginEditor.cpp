@@ -1,5 +1,8 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
+#include "UI/ThemeManager.h"
+#include "Version.h"
+
 #include <iostream>
 
 #include <cmath>
@@ -292,6 +295,10 @@ LicenseActionButton(
 
 //==============================================================================
 
+//==============================================================================
+// LICENSE ACTION BUTTON
+//==============================================================================
+
 void
 OfforVocalProAudioProcessorEditor::LicenseActionButton::
 paintButton(
@@ -305,20 +312,30 @@ paintButton(
             .reduced(1.0f);
 
     // ----------------------------------------------------------
+    // THEME
+    // ----------------------------------------------------------
+    //
+    // Always read the current ThemeManager colours here.
+    // This means the license button follows the selected theme.
+    //
+    const auto colours =
+        ThemeManager::get().getColours();
+
+    // ----------------------------------------------------------
     // Button colours
     // ----------------------------------------------------------
 
     const auto normal =
-        juce::Colour(0xffb82127);
+        colours.accentDark;
 
     const auto hover =
-        juce::Colour(0xffd72f35);
+        colours.accent;
 
     const auto pressed =
-        juce::Colour(0xff8e171c);
+        colours.accentDark.darker(0.25f);
 
     const auto border =
-        juce::Colour(0xffff5a36);
+        colours.accent;
 
     const auto currentColour =
         shouldDrawButtonAsDown
@@ -368,7 +385,7 @@ paintButton(
     // ----------------------------------------------------------
 
     g.setColour(
-        juce::Colours::white);
+        colours.text);
 
     g.setFont(
         juce::Font(
@@ -567,6 +584,10 @@ OfforVocalProAudioProcessorEditor::LicenseOverlay::
 paint(
     juce::Graphics& g)
 {
+
+    const auto colours =
+    ThemeManager::get().getColours();
+    
     auto area =
         getLocalBounds().toFloat();
 
@@ -647,7 +668,8 @@ paint(
     g.fillEllipse(iconBounds);
 
     g.setColour(
-        juce::Colour(0xffff5a36));
+        colours.accent);
+       
 
     g.drawEllipse(
         iconBounds,
@@ -883,6 +905,8 @@ OfforVocalProAudioProcessorEditor(
     setSize(
         920,
         570);
+    
+    uiScale = 1.0;
 
     setResizable(
         true,
@@ -926,9 +950,14 @@ OfforVocalProAudioProcessorEditor(
     addAndMakeVisible(
         subtitleLabel);
 
+    // setupLabel(
+    //     versionLabel,
+    //     "V1.0.0");
+
     setupLabel(
         versionLabel,
-        "V1.0.0");
+        "V"
+        + juce::String(OFFOR_VPRO_VERSION_STRING));
 
     versionLabel.setJustificationType(
         juce::Justification::centredRight);
@@ -992,6 +1021,46 @@ OfforVocalProAudioProcessorEditor(
         hideSettingsPanel();
     };
 
+    // ==========================================================
+    // SETTINGS CALLBACKS
+    // ==========================================================
+    //
+    // Connect the SettingsPanel to this editor.
+    //
+    // The SettingsPanel itself remains independent from the
+    // processor and does not need to know about audio DSP.
+    //
+
+    setupSettingsCallbacks();
+
+    // ==========================================================
+    // SETTINGS DEFAULTS
+    // ==========================================================
+    //
+    // Keep the SettingsPanel defaults synchronized with the
+    // processor/editor defaults.
+    //
+
+    audioProcessor.setProcessingEnabled(true);
+    audioProcessor.setOversamplingMode("2X");
+    audioProcessor.setProcessingQuality("High");
+    audioProcessor.setCPUMode("Balanced");
+
+    currentUIScale = "100%";
+    currentDisplayScale = "100%";
+    currentTheme = "OFFOR Dark";
+
+    ThemeManager::get().setTheme(
+        currentTheme);
+
+    currentOversampling = "2X";
+    currentProcessingQuality = "High";
+    currentCPUMode = "Balanced";
+    tooltipsEnabled = true;
+
+    inputMeter.setVisible(true);
+    outputMeter.setVisible(true);
+
     // Existing Settings icon opens/closes the panel.
     settingsButton.onClick = [this]()
     {
@@ -1007,16 +1076,6 @@ OfforVocalProAudioProcessorEditor(
     // ----------------------------------------------------------
     // SETTINGS action.
     // ----------------------------------------------------------
-
-    // settingsButton.onClick =
-    //     [this]
-    //     {
-    //         juce::AlertWindow::showMessageBoxAsync(
-    //             juce::AlertWindow::InfoIcon,
-    //             "OFFOR Vocal Pro",
-    //             "Settings panel will be available here.",
-    //             "OK");
-    //     };
 
     addAndMakeVisible(settingsButton);
 
@@ -1888,6 +1947,8 @@ OfforVocalProAudioProcessorEditor(
     selectModule(
         Module::tuner);
 
+    applyTheme();
+
     startTimerHz(20);
 }
 
@@ -1929,6 +1990,7 @@ void OfforVocalProAudioProcessorEditor::hideSettingsPanel()
     grabKeyboardFocus();
 }
 
+
 //==============================================================================
 // PRESET CONTROLS
 //==============================================================================
@@ -1940,7 +2002,13 @@ OfforVocalProAudioProcessorEditor::setupPresetControls()
     // PRESET COMBO BOX
     // ==========================================================
     //
-    // This stays compact so the header does not become crowded.
+    // The ComboBox contains the factory presets.
+    //
+    // LOAD and SAVE are NOT placed here because those are file
+    // operations rather than factory preset selections.
+    //
+    // They are available through the small menu button beside
+    // the preset selector.
     //
 
     setupComboBox(
@@ -1957,9 +2025,12 @@ OfforVocalProAudioProcessorEditor::setupPresetControls()
             i + 1);
     }
 
-    presetComboBox.setText(
-        factoryPresetNames[0],
-        juce::dontSendNotification);
+    if (factoryPresetNames.size() > 0)
+    {
+        presetComboBox.setText(
+            factoryPresetNames[0],
+            juce::dontSendNotification);
+    }
 
     presetComboBox.onChange =
         [this]
@@ -1968,50 +2039,136 @@ OfforVocalProAudioProcessorEditor::setupPresetControls()
                 presetComboBox.getSelectedId();
 
             if (selectedPreset > 0)
+            {
                 loadFactoryPreset(
                     selectedPreset - 1);
+            }
         };
 
     addAndMakeVisible(
         presetComboBox);
 
+
     // ==========================================================
-    // SAVE BUTTON
-    //===========================================================
-    // SAVE creates a real user preset file.
+    // PRESET MENU BUTTON
+    // ==========================================================
     //
-    // The complete APVTS state is saved, so all plugin parameters
-    // are preserved.
+    // LOAD and SAVE are hidden inside this menu.
     //
-    // A/B remains independent and is used only for comparison.
+    // This prevents the header from becoming crowded with
+    // separate LOAD and SAVE buttons.
+    //
+    // Menu:
+    //
+    //     Load Preset...
+    //     Save Preset...
+    //
+    // The button itself is intentionally small.
+    //
 
-    savePresetButton.setButtonText(
-        "SAVE");
+    presetMenuButton.setButtonText(
+        "...");
 
-    savePresetButton.setWantsKeyboardFocus(
+    presetMenuButton.setWantsKeyboardFocus(
         false);
 
-    savePresetButton.setMouseCursor(
+    presetMenuButton.setMouseCursor(
         juce::MouseCursor::PointingHandCursor);
 
-    savePresetButton.onClick =
-    [this]
-    {
-        // SAVE now creates a real preset file on disk.
-        //
-        // It does NOT overwrite A or B.
-        //
-        // A/B are for instant comparison.
-        // SAVE is for permanent preset storage.
-        savePresetToFile();
-    };
+    presetMenuButton.onClick =
+        [this]
+        {
+            juce::PopupMenu menu;
+
+            // --------------------------------------------------
+            // LOAD
+            // --------------------------------------------------
+
+            menu.addItem(
+                1,
+                "Load Preset...");
+
+            // --------------------------------------------------
+            // SAVE
+            // --------------------------------------------------
+
+            menu.addItem(
+                2,
+                "Save Preset...");
+
+            // --------------------------------------------------
+            // SHOW MENU
+            // --------------------------------------------------
+
+            menu.showMenuAsync(
+                juce::PopupMenu::Options()
+                    .withTargetComponent(
+                        &presetMenuButton)
+                    .withMinimumWidth(
+                        160),
+                [this](int result)
+                {
+                    // ==================================================
+                    // LOAD PRESET
+                    // ==================================================
+
+                    if (result == 1)
+                    {
+                        // ------------------------------------------------
+                        // Keep the FileChooser alive until the user
+                        // finishes selecting a file.
+                        // ------------------------------------------------
+
+                        presetFileChooser =
+                            std::make_unique<juce::FileChooser>(
+                                "Load OFFOR Vocal Pro Preset",
+                                juce::File::getSpecialLocation(
+                                    juce::File::userDocumentsDirectory),
+                                "*.offorvocalpreset");
+
+                        presetFileChooser->launchAsync(
+                            juce::FileBrowserComponent::openMode
+                                | juce::FileBrowserComponent::canSelectFiles,
+                            [this](const juce::FileChooser& chooser)
+                            {
+                                const auto file =
+                                    chooser.getResult();
+
+                                if (file.existsAsFile())
+                                {
+                                    loadPresetFromFile(
+                                        file);
+                                }
+
+                                // ------------------------------------------------
+                                // Release the chooser after the operation.
+                                // ------------------------------------------------
+
+                                presetFileChooser.reset();
+                            });
+                    }
+
+                    // ==================================================
+                    // SAVE PRESET
+                    // ==================================================
+
+                    else if (result == 2)
+                    {
+                        savePresetToFile();
+                    }
+                });
+        };
 
     addAndMakeVisible(
-        savePresetButton);
+        presetMenuButton);
+
 
     // ==========================================================
     // A BUTTON
     // ==========================================================
+    //
+    // A stores/recalls the temporary A comparison state.
+    //
 
     aButton.setButtonText(
         "A");
@@ -2034,9 +2191,13 @@ OfforVocalProAudioProcessorEditor::setupPresetControls()
     addAndMakeVisible(
         aButton);
 
+
     // ==========================================================
     // B BUTTON
     // ==========================================================
+    //
+    // B stores/recalls the temporary B comparison state.
+    //
 
     bButton.setButtonText(
         "B");
@@ -2059,9 +2220,13 @@ OfforVocalProAudioProcessorEditor::setupPresetControls()
     addAndMakeVisible(
         bButton);
 
+
+    // ==========================================================
+    // UPDATE A/B VISUAL STATE
+    // ==========================================================
+
     updateABButtonStates();
 }
-
 
 //==============================================================================
 // LICENSE OVERLAY SETUP
@@ -2732,6 +2897,833 @@ OfforVocalProAudioProcessorEditor::
     presetFileChooser.reset();
 }
 
+
+//==============================================================================
+// SETTINGS CALLBACK CONNECTION
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::setupSettingsCallbacks()
+{
+    if (settingsPanel == nullptr)
+        return;
+
+    // ==========================================================
+    // ENABLE PROCESSING
+    // ==========================================================
+
+    settingsPanel->onProcessingChanged =
+        [this](bool enabled)
+        {
+            handleProcessingChanged(enabled);
+        };
+
+    // ==========================================================
+    // UI SCALE
+    // ==========================================================
+
+    settingsPanel->onUIScaleChanged =
+        [this](const juce::String& scale)
+        {
+            handleUIScaleChanged(scale);
+        };
+
+    // ==========================================================
+    // THEME
+    // ==========================================================
+
+    settingsPanel->onThemeChanged =
+        [this](const juce::String& theme)
+        {
+            handleThemeChanged(theme);
+        };
+
+    settingsPanel->onDisplayThemeChanged =
+        [this](const juce::String& theme)
+        {
+            // Both selectors represent the same setting.
+            //
+            // We intentionally route both through the same handler.
+
+            handleThemeChanged(theme);
+        };
+
+    // ==========================================================
+    // OVERSAMPLING
+    // ==========================================================
+
+    settingsPanel->onOversamplingChanged =
+        [this](const juce::String& mode)
+        {
+            handleOversamplingChanged(mode);
+        };
+
+    // ==========================================================
+    // PROCESSING QUALITY
+    // ==========================================================
+
+    settingsPanel->onProcessingQualityChanged =
+        [this](const juce::String& quality)
+        {
+            handleProcessingQualityChanged(quality);
+        };
+
+    // ==========================================================
+    // INPUT METER
+    // ==========================================================
+
+    settingsPanel->onInputMeterChanged =
+        [this](bool visible)
+        {
+            handleInputMeterChanged(visible);
+        };
+
+    // ==========================================================
+    // OUTPUT METER
+    // ==========================================================
+
+    settingsPanel->onOutputMeterChanged =
+        [this](bool visible)
+        {
+            handleOutputMeterChanged(visible);
+        };
+
+    // ==========================================================
+    // TOOLTIPS
+    // ==========================================================
+
+    settingsPanel->onTooltipsChanged =
+        [this](bool enabled)
+        {
+            handleTooltipsChanged(enabled);
+        };
+
+    // ==========================================================
+    // DISPLAY SCALE
+    // ==========================================================
+
+    settingsPanel->onDisplayScaleChanged =
+        [this](const juce::String& scale)
+        {
+            handleDisplayScaleChanged(scale);
+        };
+
+    // ==========================================================
+    // CPU MODE
+    // ==========================================================
+
+    settingsPanel->onCPUModeChanged =
+        [this](const juce::String& mode)
+        {
+            handleCPUModeChanged(mode);
+        };
+}
+
+//==============================================================================
+// SETTINGS - ENABLE PROCESSING
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::handleProcessingChanged(
+    bool enabled)
+{
+    audioProcessor.setProcessingEnabled(enabled);
+
+    repaint();
+}
+
+
+//==============================================================================
+// SETTINGS - UI SCALE
+//==============================================================================
+//
+// REAL UI SCALING
+//
+// CHANGE MADE:
+// The UI Scale selector now changes the actual editor size.
+//
+// The scaling system uses:
+//
+//     75%  = 0.75
+//     90%  = 0.90
+//     100% = 1.00
+//     110% = 1.10
+//     125% = 1.25
+//     150% = 1.50
+//
+// The actual component layout is recalculated by resized().
+//
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::handleUIScaleChanged(
+    const juce::String& scale)
+{
+    currentUIScale = scale;
+
+    applyUIScale(scale);
+}
+
+
+//==============================================================================
+// SETTINGS - DISPLAY SCALE
+//==============================================================================
+//
+// The Display Scale selector uses the same real scaling engine.
+//
+// This prevents UI Scale and Display Scale from behaving as two
+// completely different scaling systems.
+//
+
+void
+OfforVocalProAudioProcessorEditor::handleDisplayScaleChanged(
+    const juce::String& scale)
+{
+    currentDisplayScale = scale;
+
+    applyUIScale(scale);
+}
+
+
+//==============================================================================
+// SETTINGS - THEME
+//==============================================================================
+//
+// REAL THEME SYSTEM
+//
+// CHANGE MADE:
+//
+// The theme selector no longer only changes a displayed value.
+//
+// It now changes ThemeManager's active palette and immediately
+// refreshes the complete OFFOR Vocal Pro interface.
+//
+// ThemeManager is the single source of truth.
+//
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::handleThemeChanged(
+    const juce::String& theme)
+{
+    // ----------------------------------------------------------
+    // Store the selected theme.
+    // ----------------------------------------------------------
+
+    currentTheme = theme;
+
+    // ----------------------------------------------------------
+    // Tell ThemeManager to use the selected palette.
+    // ----------------------------------------------------------
+
+    ThemeManager::get().setTheme(theme);
+
+    // ----------------------------------------------------------
+    // Refresh every colour-dependent component.
+    // ----------------------------------------------------------
+
+    applyTheme();
+
+    // ----------------------------------------------------------
+    // Redraw the complete editor.
+    // ----------------------------------------------------------
+
+    repaint();
+}
+
+
+// ==========================================================
+// UPDATE THEME FOR CHILD COMPONENTS
+// ==========================================================
+//
+// Refresh all child components after a theme change.
+//
+// ==========================================================
+
+void
+OfforVocalProAudioProcessorEditor::
+updateThemeForChildComponents()
+{
+    repaint();
+
+    for (auto* child : getChildren())
+    {
+        if (child != nullptr)
+            child->repaint();
+    }
+}
+
+
+//==============================================================================
+// GET ACTIVE THEME COLOURS
+//==============================================================================
+//
+// This keeps colour access centralized.
+//
+// Any future UI element should obtain its colours from this
+// function rather than introducing another hard-coded palette.
+//
+//==============================================================================
+
+ThemeManager::Colours
+OfforVocalProAudioProcessorEditor::getThemeColours() const
+{
+    return ThemeManager::get().getColours();
+}
+
+
+//==============================================================================
+// APPLY THEME
+//==============================================================================
+//
+// Rebuild the visual appearance of controls using the currently
+// selected ThemeManager palette.
+//
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::applyTheme()
+{
+    refreshThemeColours();
+
+    updateThemeForChildComponents();
+
+    if (settingsPanel != nullptr)
+        settingsPanel->repaint();
+
+    if (themeColorPanel != nullptr)
+        themeColorPanel->updateDisplay();
+
+    repaint();
+}
+
+
+//==============================================================================
+// REFRESH EDITOR THEME COLOURS
+//==============================================================================
+//
+// IMPORTANT:
+//
+// Your existing static colour constants are retained for now
+// because many older UI setup functions reference them.
+//
+// We update all runtime component colours here.
+//
+// The custom paint functions themselves will read directly from
+// ThemeManager in the next stage.
+//
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::refreshThemeColours()
+{
+    const auto colours =
+        getThemeColours();
+
+
+    ProfessionalKnob* knobs[] =
+    {
+        &inputSlider,
+        &globalMixSlider,
+        &outputSlider,
+
+        &tunerRetuneSlider,
+        &tunerSmoothSlider,
+        &tunerFormantSlider,
+        &tunerMixSlider,
+
+        &doublerAmountSlider,
+        &doublerDetuneSlider,
+        &doublerTimingSlider,
+        &doublerWidthSlider,
+        &doublerMixSlider,
+
+        &harmonyMixSlider,
+
+        &creativeFxAmountSlider,
+        &creativeFxMixSlider,
+
+        &spaceSizeSlider,
+        &spaceDecaySlider,
+        &spacePreDelaySlider,
+        &spaceDampingSlider,
+        &spaceMixSlider
+    };
+
+    for (auto* knob : knobs)
+    {
+        knob->setColour(
+            juce::Slider::textBoxTextColourId,
+            colours.text);
+
+        knob->setColour(
+            juce::Slider::textBoxBackgroundColourId,
+            colours.display);
+
+        knob->setColour(
+            juce::Slider::textBoxOutlineColourId,
+            colours.border);
+
+        knob->setColour(
+            juce::Slider::textBoxHighlightColourId,
+            colours.accent);
+
+        knob->repaint();
+    }
+
+    // ==========================================================
+    // GLOBAL BUTTONS
+    // ==========================================================
+
+    bypassButton.setColour(
+        juce::TextButton::buttonColourId,
+        colours.panel2);
+
+    bypassButton.setColour(
+        juce::TextButton::textColourOffId,
+        colours.text);
+
+    bypassButton.setColour(
+        juce::TextButton::textColourOnId,
+        colours.text);
+
+    // ==========================================================
+    // PRESET
+    // ==========================================================
+
+    presetComboBox.setColour(
+        juce::ComboBox::backgroundColourId,
+        colours.display);
+
+    presetComboBox.setColour(
+        juce::ComboBox::outlineColourId,
+        colours.border);
+
+    presetComboBox.setColour(
+        juce::ComboBox::textColourId,
+        colours.text);
+
+    presetComboBox.setColour(
+        juce::ComboBox::arrowColourId,
+        colours.muted);
+
+    // ==========================================================
+    // PRESET MENU BUTTON
+    // ==========================================================
+    //
+    // LOAD and SAVE are now inside the small preset menu.
+    // The menu button therefore receives the theme colours
+    // previously assigned to the SAVE button.
+    //
+
+    presetMenuButton.setColour(
+        juce::TextButton::buttonColourId,
+        colours.panel2);
+
+    presetMenuButton.setColour(
+        juce::TextButton::textColourOffId,
+        colours.text);
+
+    presetMenuButton.setColour(
+        juce::TextButton::textColourOnId,
+        colours.text);
+
+    // ==========================================================
+    // A/B
+    // ==========================================================
+
+    updateABButtonStates();
+
+    // ==========================================================
+    // ALL COMBO BOXES
+    // ==========================================================
+
+    juce::ComboBox* comboBoxes[] =
+    {
+        &keyComboBox,
+        &scaleComboBox,
+        &modeComboBox,
+
+        &harmonyVoice1ComboBox,
+        &harmonyVoice2ComboBox,
+        &harmonyVoice3ComboBox,
+        &harmonyVoice4ComboBox,
+
+        &creativeFxTypeComboBox,
+        &spaceTypeComboBox
+    };
+
+    for (auto* combo : comboBoxes)
+    {
+        combo->setColour(
+            juce::ComboBox::backgroundColourId,
+            colours.display);
+
+        combo->setColour(
+            juce::ComboBox::outlineColourId,
+            colours.border);
+
+        combo->setColour(
+            juce::ComboBox::textColourId,
+            colours.text);
+
+        combo->setColour(
+            juce::ComboBox::arrowColourId,
+            colours.muted);
+    }
+
+    // ==========================================================
+    // ALL LABELS
+    // ==========================================================
+
+    juce::Label* labels[] =
+    {
+        &titleLabel,
+        &subtitleLabel,
+        &versionLabel,
+
+        &tunerStatusLabel,
+        &detectedNoteLabel,
+        &detectedFrequencyLabel,
+        &detectedCentsLabel,
+        &detectedConfidenceLabel,
+
+        &keyLabel,
+        &scaleLabel,
+        &modeLabel,
+
+        &tunerRetuneLabel,
+        &tunerSmoothLabel,
+        &tunerFormantLabel,
+        &tunerMixLabel,
+
+        &doublerAmountLabel,
+        &doublerDetuneLabel,
+        &doublerTimingLabel,
+        &doublerWidthLabel,
+        &doublerMixLabel,
+
+        &harmonyVoice1Label,
+        &harmonyVoice2Label,
+        &harmonyVoice3Label,
+        &harmonyVoice4Label,
+        &harmonyMixLabel,
+
+        &creativeFxTypeLabel,
+        &creativeFxAmountLabel,
+        &creativeFxMixLabel,
+
+        &spaceTypeLabel,
+        &spaceSizeLabel,
+        &spaceDecayLabel,
+        &spacePreDelayLabel,
+        &spaceDampingLabel,
+        &spaceMixLabel,
+
+        &inputLabel,
+        &globalMixLabel,
+        &outputLabel
+    };
+
+    for (auto* label : labels)
+    {
+        if (label == nullptr)
+            continue;
+
+        label->setColour(
+            juce::Label::textColourId,
+            colours.text);
+    }
+
+    // ==========================================================
+    // SETTINGS BUTTON
+    // ==========================================================
+
+    // settingsButton.setColour(
+    //     juce::ImageButton::imageColourNormalId,
+    //     colours.text);
+
+    // settingsButton.setColour(
+    //     juce::ImageButton::imageColourOnId,
+    //     colours.accent);
+
+    // ==========================================================
+    // REPAINT COMPONENTS
+    // ==========================================================
+
+    for (auto* combo : comboBoxes)
+        combo->repaint();
+
+    for (auto* label : labels)
+        label->repaint();
+
+    bypassButton.repaint();
+    presetMenuButton.repaint();
+    aButton.repaint();
+    bButton.repaint();
+    settingsButton.repaint();
+}
+
+
+//==============================================================================
+// SETTINGS - OVERSAMPLING
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::handleOversamplingChanged(
+    const juce::String& mode)
+{
+    currentOversampling = mode;
+
+    audioProcessor.setOversamplingMode(mode);
+
+    repaint();
+}
+
+
+//==============================================================================
+// SETTINGS - PROCESSING QUALITY
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::handleProcessingQualityChanged(
+    const juce::String& quality)
+{
+    currentProcessingQuality = quality;
+
+    audioProcessor.setProcessingQuality(quality);
+
+    repaint();
+}
+
+
+//==============================================================================
+// SETTINGS - INPUT METER
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::handleInputMeterChanged(
+    bool visible)
+{
+    inputMeter.setVisible(visible);
+
+    // Repaint because the settings change may affect surrounding
+    // visual layout in the future.
+
+    repaint();
+}
+
+
+//==============================================================================
+// SETTINGS - OUTPUT METER
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::handleOutputMeterChanged(
+    bool visible)
+{
+    outputMeter.setVisible(visible);
+
+    repaint();
+}
+
+
+//==============================================================================
+// SETTINGS - TOOLTIPS
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::handleTooltipsChanged(
+    bool enabled)
+{
+    tooltipsEnabled = enabled;
+
+    // ----------------------------------------------------------
+    // Existing controls do not currently have a central tooltip
+    // controller.
+    //
+    // Store the state here so the tooltip system can use it.
+    // ----------------------------------------------------------
+
+    repaint();
+}
+
+
+//==============================================================================
+// REAL UI SCALE FACTOR
+//==============================================================================
+//
+// Converts the SettingsPanel string into a numeric scale.
+//
+// Examples:
+//
+//     "75%"  -> 0.75
+//     "90%"  -> 0.90
+//     "100%" -> 1.00
+//     "110%" -> 1.10
+//     "125%" -> 1.25
+//     "150%" -> 1.50
+//
+// If an invalid value somehow reaches this function, 100% is used.
+//==============================================================================
+
+double
+OfforVocalProAudioProcessorEditor::getUIScaleFactor(
+    const juce::String& scale) const
+{
+    if (scale == "75%")
+        return 0.75;
+
+    if (scale == "90%")
+        return 0.90;
+
+    if (scale == "100%")
+        return 1.00;
+
+    if (scale == "110%")
+        return 1.10;
+
+    if (scale == "125%")
+        return 1.25;
+
+    if (scale == "150%")
+        return 1.50;
+
+    // Safe fallback.
+    return 1.00;
+}
+
+
+//==============================================================================
+// APPLY REAL UI SCALE
+//==============================================================================
+//
+// CHANGE MADE:
+// This changes the actual editor dimensions.
+//
+// We intentionally do not use setTransform().
+//
+// The editor remains a normal JUCE component, which means:
+//
+//     - mouse coordinates remain normal
+//     - ComboBox menus remain correctly positioned
+//     - text editors remain usable
+//     - license input remains usable
+//     - SettingsPanel remains usable
+//
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::applyUIScale(
+    const juce::String& scale)
+{
+    const double newScale =
+        getUIScaleFactor(scale);
+
+    uiScale = newScale;
+
+    const int newWidth =
+        juce::jmax(
+            1,
+            juce::roundToInt(
+                static_cast<double>(baseEditorWidth)
+                * uiScale));
+
+    const int newHeight =
+        juce::jmax(
+            1,
+            juce::roundToInt(
+                static_cast<double>(baseEditorHeight)
+                * uiScale));
+
+    // ----------------------------------------------------------
+    // Resize the complete editor.
+    // ----------------------------------------------------------
+
+    setSize(
+        newWidth,
+        newHeight);
+
+    // resized() is normally called by setSize(), but explicitly
+    // calling it here makes the intention clear and guarantees
+    // the scaled layout is immediately recalculated.
+    resized();
+
+    repaint();
+}
+
+
+//==============================================================================
+// SCALE INTEGER
+//==============================================================================
+
+int
+OfforVocalProAudioProcessorEditor::scaleValue(
+    int value) const
+{
+    return juce::roundToInt(
+        static_cast<double>(value)
+        * uiScale);
+}
+
+
+//==============================================================================
+// SCALE RECTANGLE
+//==============================================================================
+
+juce::Rectangle<int>
+OfforVocalProAudioProcessorEditor::scaledBounds(
+    int x,
+    int y,
+    int width,
+    int height) const
+{
+    return
+    {
+        scaleValue(x),
+        scaleValue(y),
+        juce::jmax(1, scaleValue(width)),
+        juce::jmax(1, scaleValue(height))
+    };
+}
+
+
+//==============================================================================
+// SET SCALED BOUNDS
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::setScaledBounds(
+    juce::Component& component,
+    int x,
+    int y,
+    int width,
+    int height) const
+{
+    component.setBounds(
+        scaledBounds(
+            x,
+            y,
+            width,
+            height));
+}
+
+
+//==============================================================================
+// SETTINGS - CPU MODE
+//==============================================================================
+
+void
+OfforVocalProAudioProcessorEditor::handleCPUModeChanged(
+    const juce::String& mode)
+{
+    currentCPUMode = mode;
+
+    audioProcessor.setCPUMode(mode);
+
+    repaint();
+}
+
 //==============================================================================
 // LOAD IMAGES
 //==============================================================================
@@ -2993,8 +3985,11 @@ void
 OfforVocalProAudioProcessorEditor::paint(
     juce::Graphics& g)
 {
+    const auto colours =
+        ThemeManager::get().getColours();
+
     g.fillAll(
-        backgroundColour);
+        colours.background);
 
     const auto area =
         getLocalBounds();
@@ -3007,13 +4002,12 @@ OfforVocalProAudioProcessorEditor::paint(
         area.withHeight(64);
 
     g.setColour(
-        juce::Colour::fromString(
-            "FF0D0F11"));
+        colours.panel);
 
     g.fillRect(header);
 
     g.setColour(
-        borderColour);
+        colours.border);
 
     g.drawLine(
         0.0f,
@@ -3174,20 +4168,72 @@ OfforVocalProAudioProcessorEditor::paint(
 void
 OfforVocalProAudioProcessorEditor::resized()
 {
-    const int w = getWidth();
-    const int h = getHeight();
+    // ==========================================================
+    // REAL UI SCALING
+    // ==========================================================
+    //
+    // All layout coordinates below are written against the
+    // original 100% design size.
+    //
+    // We convert those logical coordinates into actual pixels.
+    //
+    // This means the existing carefully designed layout can
+    // remain intact while the entire interface scales.
+    //
+    // ==========================================================
+
+    const double scale =
+        uiScale > 0.0
+            ? uiScale
+            : 1.0;
+
+    // ----------------------------------------------------------
+    // Helper for scaling integer coordinates.
+    // ----------------------------------------------------------
+
+    const auto S =
+        [scale](int value)
+        {
+            return juce::roundToInt(
+                static_cast<double>(value) * scale);
+        };
+
+    // ----------------------------------------------------------
+    // Helper for scaling dimensions.
+    // ----------------------------------------------------------
+
+    const auto SW =
+        [scale](int value)
+        {
+            return juce::jmax(
+                1,
+                juce::roundToInt(
+                    static_cast<double>(value) * scale));
+        };
+
+    // ==========================================================
+    // LOGICAL 100% DESIGN SIZE
+    // ==========================================================
+
+    const int w =
+        S(baseEditorWidth);
+
+    const int h =
+        S(baseEditorHeight);
 
     // ==========================================================
     // HEADER
     // ==========================================================
 
-    titleLabel.setBounds(
+    setScaledBounds(
+        titleLabel,
         68,
         11,
         240,
         24);
 
-    subtitleLabel.setBounds(
+    setScaledBounds(
+        subtitleLabel,
         69,
         35,
         180,
@@ -3205,37 +4251,59 @@ OfforVocalProAudioProcessorEditor::resized()
     // not compete with the preset controls.
     //
 
-    versionLabel.setBounds(
+    setScaledBounds(
+        versionLabel,
         310,
         20,
         55,
         20);
 
-    bypassButton.setBounds(
+    setScaledBounds(
+        bypassButton,
         w - 112,
         17,
         90,
         30);
 
-    settingsButton.setBounds(
-        w - 205,
-        16,
-        48,
-        32);
+    // setScaledBounds(
+    //     settingsButton,
+    //     w - 205,
+    //     16,
+    //     48,
+    //     32);
+
+    // ==========================================================
+    // SETTINGS BUTTON
+    // ==========================================================
+    //
+    // Smaller icon keeps the header clean and leaves more space
+    // for the preset controls.
+    //
+
+    setScaledBounds(
+        settingsButton,
+        w - 245,
+        17,
+        30,
+        30);
 
     // ==========================================================
     // PRESET / A-B HEADER CONTROLS
     // ==========================================================
     //
-    // Compact controls placed between the title area and the
-    // SETTINGS/BYPASS controls.
+    // Layout:
     //
-    // SAVE writes the current APVTS state to a preset file.
+    // PRESET -> MENU -> A -> B -> SETTINGS -> BYPASS
     //
-    // A/B are instant comparison snapshots.
+    // LOAD and SAVE are hidden inside MENU.
+    // This saves considerable header space.
     //
 
     const int presetY = 17;
+
+    // ----------------------------------------------------------
+    // Factory preset selector
+    // ----------------------------------------------------------
 
     presetComboBox.setBounds(
         w - 525,
@@ -3243,20 +4311,28 @@ OfforVocalProAudioProcessorEditor::resized()
         155,
         30);
 
-    savePresetButton.setBounds(
-        w - 360,
+    // ----------------------------------------------------------
+    // Small preset menu button
+    // ----------------------------------------------------------
+
+    presetMenuButton.setBounds(
+        w - 365,
         presetY,
-        55,
+        28,
         30);
 
+    // ----------------------------------------------------------
+    // A / B comparison buttons
+    // ----------------------------------------------------------
+
     aButton.setBounds(
-        w - 295,
+        w - 330,
         presetY,
         30,
         30);
 
     bButton.setBounds(
-        w - 258,
+        w - 293,
         presetY,
         30,
         30);
@@ -3271,7 +4347,8 @@ OfforVocalProAudioProcessorEditor::resized()
     const int buttonHeight = 56;
     const int gap = 8;
 
-    tunerButton.setBounds(
+    setScaledBounds(
+        tunerButton,
         railX,
         railY,
         railWidth,
@@ -3903,13 +4980,28 @@ ProfessionalKnob()
 
     setWantsKeyboardFocus(false);
 
+    const auto colours =
+        ThemeManager::get().getColours();
+
     setColour(
         juce::Slider::textBoxTextColourId,
-        juce::Colour(0xffff7a18));
+        colours.text);
 
     setColour(
         juce::Slider::textBoxBackgroundColourId,
-        juce::Colour(0xff08090a));
+        colours.display);
+
+    setColour(
+        juce::Slider::textBoxOutlineColourId,
+        colours.border);
+
+    // setColour(
+    //     juce::Slider::textBoxTextColourId,
+    //     juce::Colour(0xffff7a18));
+
+    // setColour(
+    //     juce::Slider::textBoxBackgroundColourId,
+    //     juce::Colour(0xff08090a));
 
     setColour(
         juce::Slider::textBoxOutlineColourId,
@@ -3928,6 +5020,9 @@ OfforVocalProAudioProcessorEditor::ProfessionalKnob::
 paint(
     juce::Graphics& g)
 {
+    const auto colours =
+        ThemeManager::get().getColours();
+
     auto bounds =
         getLocalBounds().toFloat();
 
@@ -3992,27 +5087,47 @@ paint(
         + static_cast<float>(normalized)
             * (endAngle - startAngle);
 
-    // ======================================================
-    // OFFOR DARK / RED-ORANGE PALETTE
-    // ======================================================
+    // // ======================================================
+    // // OFFOR DARK / RED-ORANGE PALETTE
+    // // ======================================================
+
+    // const auto redOrange =
+    //     juce::Colour(0xffff3b1f);
+
+
+    // const auto darkOuter =
+    //     juce::Colour(0xff050607);
+
+    // const auto darkBody =
+    //     juce::Colour(0xff111214);
+
+    // const auto innerFace =
+    //     juce::Colour(0xff191b1e);
+
+    // const auto darkRedOrange =
+    //     juce::Colour(0xff4a1710);
+
+    // ==========================================================
+    // THEME-AWARE KNOB PALETTE
+    // ==========================================================
 
     const auto redOrange =
-        juce::Colour(0xffff3b1f);
+        colours.accent;
 
     const auto brightRedOrange =
-        juce::Colour(0xffff5a36);
+        colours.knobHighlight;
 
     const auto darkOuter =
-        juce::Colour(0xff050607);
+        colours.background;
 
     const auto darkBody =
-        juce::Colour(0xff111214);
+        colours.panel;
 
     const auto innerFace =
-        juce::Colour(0xff191b1e);
+        colours.knob;
 
     const auto darkRedOrange =
-        juce::Colour(0xff4a1710);
+        colours.accentDark;
 
     // ======================================================
     // OUTER SHADOW
@@ -4626,17 +5741,32 @@ OfforVocalProAudioProcessorEditor::drawPitchMeter(
     // COLORS
     // ==========================================================
 
+    const auto colours =
+        ThemeManager::get().getColours();
+
     const auto background =
-        displayColour;
+        colours.display;
 
     const auto border =
-        borderColour;
+        colours.border;
 
     const auto accent =
-        accentColour;
+        colours.accent;
 
     const auto inactive =
-        mutedColour;
+        colours.muted;
+
+    // const auto background =
+    //     displayColour;
+
+    // const auto border =
+    //     borderColour;
+
+    // const auto accent =
+    //     accentColour;
+
+    // const auto inactive =
+    //     mutedColour;
 
     // ==========================================================
     // MAIN CIRCLE
@@ -4813,19 +5943,19 @@ OfforVocalProAudioProcessorEditor::drawPitchMeter(
     {
         // Excellent tuning.
         indicatorColour =
-            juce::Colour(0xff55ff9a);
+            colours.success;
     }
     else if (close)
     {
         // Acceptable tuning.
         indicatorColour =
-            accent;
+            colours.accent;
     }
     else
     {
         // Clearly flat or sharp.
         indicatorColour =
-            juce::Colour(0xffff5a36);
+            colours.accent;
     }
 
     // ==========================================================
@@ -5611,14 +6741,19 @@ OfforVocalProAudioProcessorEditor::savePresetToFile()
         });
 }
 
-
 //==============================================================================
 // LOAD PRESET FROM FILE
 //==============================================================================
 //
 // Loads a previously saved OFFOR Vocal Pro preset.
 //
-// The complete APVTS state is restored.
+// Restores:
+//     • APVTS parameters
+//     • Theme
+//     • Custom theme colours
+//
+// The preset file is an XML ValueTree created by the
+// OFFOR Vocal Pro preset save system.
 //
 //==============================================================================
 
@@ -5626,12 +6761,16 @@ void
 OfforVocalProAudioProcessorEditor::loadPresetFromFile(
     const juce::File& file)
 {
+    //--------------------------------------------------------------------------
+    // CHECK FILE
+    //--------------------------------------------------------------------------
+
     if (!file.existsAsFile())
         return;
 
-    // ----------------------------------------------------------
-    // Read the XML file.
-    // ----------------------------------------------------------
+    //--------------------------------------------------------------------------
+    // READ XML
+    //--------------------------------------------------------------------------
 
     auto xml =
         juce::XmlDocument::parse(file);
@@ -5647,9 +6786,29 @@ OfforVocalProAudioProcessorEditor::loadPresetFromFile(
         return;
     }
 
-    // ----------------------------------------------------------
-    // Convert XML back into a ValueTree.
-    // ----------------------------------------------------------
+    //--------------------------------------------------------------------------
+    // VERIFY THIS IS AN OFFOR VOCAL PRO PRESET
+    //--------------------------------------------------------------------------
+    //
+    // This prevents accidentally loading random XML files.
+    //
+    //--------------------------------------------------------------------------
+
+    if (!xml->hasTagName(
+            audioProcessor.apvts.state.getType()))
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "OFFOR VOCAL PRO",
+            "This file is not a valid OFFOR Vocal Pro preset.",
+            "OK");
+
+        return;
+    }
+
+    //--------------------------------------------------------------------------
+    // CONVERT XML TO VALUE TREE
+    //--------------------------------------------------------------------------
 
     const juce::ValueTree loadedState =
         juce::ValueTree::fromXml(*xml);
@@ -5665,25 +6824,135 @@ OfforVocalProAudioProcessorEditor::loadPresetFromFile(
         return;
     }
 
-    // ----------------------------------------------------------
-    // Restore the complete APVTS state.
-    // ----------------------------------------------------------
+    //--------------------------------------------------------------------------
+    // RESTORE APVTS PARAMETERS
+    //--------------------------------------------------------------------------
+    //
+    // This restores things such as:
+    //
+    //     Input
+    //     Output
+    //     Mix
+    //     Doubler
+    //     Harmony
+    //     Tuner
+    //     Creative FX
+    //     Space
+    //     Bypass
+    //
+    //--------------------------------------------------------------------------
 
     audioProcessor.apvts.replaceState(
         loadedState);
 
-    // ----------------------------------------------------------
-    // Repaint the interface so all controls immediately
-    // reflect the loaded preset.
-    // ----------------------------------------------------------
+    //--------------------------------------------------------------------------
+    // RESTORE THEME
+    //--------------------------------------------------------------------------
+    //
+    // ThemeManager is separate from APVTS, so we restore it manually from
+    // the properties saved inside the preset ValueTree.
+    //
+    //--------------------------------------------------------------------------
+
+    if (loadedState.hasProperty("OFFOR_THEME"))
+    {
+        const auto savedTheme =
+            loadedState
+                .getProperty("OFFOR_THEME")
+                .toString();
+
+        ThemeManager::get().setTheme(
+            savedTheme);
+    }
+
+    //--------------------------------------------------------------------------
+    // RESTORE CUSTOM COLOURS
+    //--------------------------------------------------------------------------
+    //
+    // We use setCustomColourWithoutChangingTheme() because the normal
+    // setCustomColour() automatically changes the active theme to "Custom".
+    //
+    //--------------------------------------------------------------------------
+
+    const juce::StringArray colourIds =
+    {
+        "background",
+        "panel",
+        "panel2",
+        "border",
+        "text",
+        "muted",
+        "accent",
+        "accentDark",
+        "display",
+        "knob",
+        "knobHighlight",
+        "meter",
+        "meterBackground",
+        "success",
+        "warning"
+    };
+
+    for (const auto& colourId : colourIds)
+    {
+        const juce::String propertyName =
+            "OFFOR_COLOUR_" + colourId;
+
+        if (!loadedState.hasProperty(propertyName))
+            continue;
+
+        const auto argb =
+            static_cast<juce::int64>(
+                loadedState.getProperty(
+                    propertyName));
+
+        ThemeManager::get()
+            .setCustomColourWithoutChangingTheme(
+                colourId,
+                juce::Colour(
+                    static_cast<juce::uint32>(
+                        argb)));
+    }
+
+    //--------------------------------------------------------------------------
+    // RESTORE THEME AGAIN
+    //--------------------------------------------------------------------------
+    //
+    // Important:
+    //
+    // The custom colours above are loaded WITHOUT changing the theme.
+    //
+    // We nevertheless set the saved theme again here so the final active
+    // theme is guaranteed to be exactly what was saved.
+    //
+    //--------------------------------------------------------------------------
+
+    if (loadedState.hasProperty("OFFOR_THEME"))
+    {
+        const auto savedTheme =
+            loadedState
+                .getProperty("OFFOR_THEME")
+                .toString();
+
+        ThemeManager::get().setTheme(
+            savedTheme);
+    }
+
+    //--------------------------------------------------------------------------
+    // REFRESH THE UI
+    //--------------------------------------------------------------------------
 
     repaint();
 
-    // ----------------------------------------------------------
-    // The loaded preset becomes the current A state.
+    //--------------------------------------------------------------------------
+    // UPDATE A/B STATE
+    //--------------------------------------------------------------------------
     //
-    // B remains untouched.
-    // ----------------------------------------------------------
+    // The loaded preset becomes State A.
+    //
+    // State B remains untouched.
+    //
+    //--------------------------------------------------------------------------
 
     stateA =
         audioProcessor.apvts.copyState();
@@ -5691,4 +6960,15 @@ OfforVocalProAudioProcessorEditor::loadPresetFromFile(
     isAActive = true;
 
     updateABButtonStates();
+
+    //--------------------------------------------------------------------------
+    // FORCE CHILD COMPONENTS TO UPDATE
+    //--------------------------------------------------------------------------
+    //
+    // Some custom components may not update simply because the editor itself
+    // was repainted. This makes sure the controls redraw immediately.
+    //
+    //--------------------------------------------------------------------------
+
+    updateThemeForChildComponents();
 }

@@ -457,6 +457,41 @@ public:
     }
 
 
+        //==========================================================================
+    // SETTINGS
+    //==========================================================================
+    //
+    // These are application/plugin-engine settings rather than audio
+    // automation parameters, so they are intentionally NOT added to APVTS.
+    //
+    // APVTS remains responsible for actual plugin parameters:
+    //
+    //     Input
+    //     Output
+    //     Mix
+    //     Tuner
+    //     Doubler
+    //     Harmony
+    //     Creative FX
+    //     Space
+    //
+    // SettingsPanel uses these functions for engine-level preferences.
+    //
+    //==========================================================================
+
+    void setProcessingEnabled(bool enabled);
+    bool isProcessingEnabled() const;
+
+    void setOversamplingMode(const juce::String& mode);
+    juce::String getOversamplingMode() const;
+
+    void setProcessingQuality(const juce::String& quality);
+    juce::String getProcessingQuality() const;
+
+    void setCPUMode(const juce::String& mode);
+    juce::String getCPUMode() const;
+
+
 private:
 
     // ==========================================================
@@ -562,6 +597,94 @@ private:
 
     static double midiToFrequency(
         double midiNote);
+
+    // ==========================================================
+    // OVERSAMPLING ENGINE
+    // ==========================================================
+    //
+    // OFFOR Vocal Pro keeps:
+    //
+    //     Pitch Detection
+    //     Pitch Correction
+    //
+    // at the host sample rate.
+    //
+    // The creative processing chain:
+    //
+    //     Doubler
+    //     Harmony
+    //     Creative FX
+    //     Space
+    //
+    // can then run at:
+    //
+    //     Off -> 1X
+    //     2X  -> 2X host rate
+    //     4X  -> 4X host rate
+    //     8X  -> 8X host rate
+    //
+    // JUCE's Oversampling class handles the anti-aliasing
+    // filters and sample-rate conversion.
+    //
+    // ==========================================================
+
+    std::unique_ptr<juce::dsp::Oversampling<float>>
+        oversampler;
+
+
+    // ==========================================================
+    // OVERSAMPLING CONFIGURATION
+    // ==========================================================
+    //
+    // This function is called when the oversampling setting changes
+    // or when prepareToPlay() receives a new host sample rate.
+    //
+    // It is NEVER called directly from processBlock().
+    //
+    // ==========================================================
+
+    void configureOversampling(
+        const juce::String& mode);
+
+
+    // ==========================================================
+    // OVERSAMPLING FACTOR
+    // ==========================================================
+    //
+    // Returns:
+    //
+    //     Off -> 1
+    //     2X  -> 2
+    //     4X  -> 4
+    //     8X  -> 8
+    //
+    // ==========================================================
+
+    int getOversamplingFactorFromMode(
+        const juce::String& mode) const;
+
+
+    // ==========================================================
+    // DSP CONFIGURATION LOCK
+    // ==========================================================
+    //
+    // Changing oversampling requires rebuilding the JUCE
+    // Oversampling object and re-preparing the downstream DSP.
+    //
+    // That must not happen simultaneously with processBlock().
+    //
+    // The GUI/configuration side takes this lock while rebuilding.
+    //
+    // The audio thread uses ScopedTryLock instead of waiting.
+    //
+    // If the lock is unavailable, processBlock() simply leaves
+    // that block untouched.
+    //
+    // This prevents the real-time audio thread from blocking.
+    //
+    // ==========================================================
+
+    juce::SpinLock dspConfigurationLock;
 
 
     // ==========================================================
@@ -692,6 +815,17 @@ private:
     {
         -60.0f
     };
+
+
+    //==========================================================================
+    // SETTINGS STATE
+    //==========================================================================
+
+    std::atomic<bool> processingEnabled{true};
+
+    juce::String oversamplingMode = "2X";
+    juce::String processingQuality = "High";
+    juce::String cpuMode = "Balanced";
 
 
     // ==========================================================
