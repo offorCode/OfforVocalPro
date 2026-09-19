@@ -876,121 +876,159 @@ void FeedbackPanel::paint(
 
 void FeedbackPanel::resized()
 {
-    const int width =
-        getWidth();
+const int width = getWidth();
+const int height = getHeight();
 
-    const int left =
-        0;
+const int left = 0;
+const int right = width;
 
-    const int right =
-        width;
+const int controlWidth = 260;
+const int controlRight = right - controlWidth;
 
-    const int controlWidth =
-        260;
+const int fieldHeight = 34;
 
-    const int controlRight =
-        right - controlWidth;
+//==========================================================================
+// HEADER
+//==========================================================================
 
-    const int fieldHeight =
-        34;
+titleLabel.setBounds(
+    left,
+    0,
+    width,
+    30);
 
-    //==========================================================================
-    // HEADER
-    //==========================================================================
+descriptionLabel.setBounds(
+    left,
+    32,
+    width,
+    42);
 
-    titleLabel.setBounds(
-        left,
+//==========================================================================
+// FEEDBACK TYPE
+//==========================================================================
+
+typeLabel.setBounds(
+    left,
+    82,
+    180,
+    20);
+
+typeComboBox.setBounds(
+    controlRight,
+    78,
+    controlWidth,
+    fieldHeight);
+
+//==========================================================================
+// NAME
+//==========================================================================
+
+nameLabel.setBounds(
+    left,
+    132,
+    180,
+    20);
+
+nameEditor.setBounds(
+    controlRight,
+    128,
+    controlWidth,
+    fieldHeight);
+
+//==========================================================================
+// EMAIL
+//==========================================================================
+
+emailLabel.setBounds(
+    left,
+    182,
+    180,
+    20);
+
+emailEditor.setBounds(
+    controlRight,
+    178,
+    controlWidth,
+    fieldHeight);
+
+//==========================================================================
+// MESSAGE LABEL
+//==========================================================================
+
+messageLabel.setBounds(
+    left,
+    232,
+    180,
+    20);
+
+//==========================================================================
+// BOTTOM AREA
+//
+// Instead of using a fixed Y position such as 420, calculate the position
+// from the actual height of FeedbackPanel.
+//
+// This keeps the Send button visible at both the default and expanded
+// plugin sizes.
+//==========================================================================
+
+constexpr int bottomMargin = 5;
+constexpr int buttonHeight = 38;
+constexpr int bottomAreaGap = 8;
+
+const int buttonY =
+    juce::jmax(
+        300,
+        height - buttonHeight - bottomMargin);
+
+//==========================================================================
+// MESSAGE EDITOR
+//
+// The message editor fills the space between the MESSAGE label and the
+// bottom controls.
+//
+// At the default plugin size it becomes shorter.
+//
+// When the plugin is expanded it automatically becomes taller.
+//==========================================================================
+
+const int messageTop = 260;
+
+const int messageBottom =
+    buttonY - bottomAreaGap;
+
+const int messageHeight =
+    juce::jmax(
+        60,
+        messageBottom - messageTop);
+
+messageEditor.setBounds(
+    left,
+    messageTop,
+    width,
+    messageHeight);
+
+//==========================================================================
+// SEND BUTTON
+//==========================================================================
+
+sendButton.setBounds(
+    width - 170,
+    buttonY,
+    170,
+    buttonHeight);
+
+//==========================================================================
+// STATUS
+//
+// Status occupies the remaining area to the left of the Send button.
+//==========================================================================
+
+statusLabel.setBounds(
+    left,
+    buttonY,
+    juce::jmax(
         0,
-        width,
-        30);
-
-    descriptionLabel.setBounds(
-        left,
-        32,
-        width,
-        42);
-
-    //==========================================================================
-    // FEEDBACK TYPE
-    //==========================================================================
-
-    typeLabel.setBounds(
-        left,
-        82,
-        180,
-        20);
-
-    typeComboBox.setBounds(
-        controlRight,
-        78,
-        controlWidth,
-        fieldHeight);
-
-    //==========================================================================
-    // NAME
-    //==========================================================================
-
-    nameLabel.setBounds(
-        left,
-        132,
-        180,
-        20);
-
-    nameEditor.setBounds(
-        controlRight,
-        128,
-        controlWidth,
-        fieldHeight);
-
-    //==========================================================================
-    // EMAIL
-    //==========================================================================
-
-    emailLabel.setBounds(
-        left,
-        182,
-        180,
-        20);
-
-    emailEditor.setBounds(
-        controlRight,
-        178,
-        controlWidth,
-        fieldHeight);
-
-    //==========================================================================
-    // MESSAGE
-    //==========================================================================
-
-    messageLabel.setBounds(
-        left,
-        232,
-        180,
-        20);
-
-    messageEditor.setBounds(
-        left,
-        260,
-        width,
-        145);
-
-    //==========================================================================
-    // SEND BUTTON
-    //==========================================================================
-
-    sendButton.setBounds(
-        width - 170,
-        420,
-        170,
-        38);
-
-    //==========================================================================
-    // STATUS
-    //==========================================================================
-
-    statusLabel.setBounds(
-        left,
-        420,
-        width - 185,
-        38);
+        width - 185),
+    buttonHeight);
 }
+

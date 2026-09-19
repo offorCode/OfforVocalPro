@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
 #include "UI/ThemeManager.h"
+#include "UI/UpdateChecker.h"
 #include "Version.h"
 
 #include <iostream>
@@ -1948,6 +1949,31 @@ OfforVocalProAudioProcessorEditor(
         Module::tuner);
 
     applyTheme();
+
+    // ==========================================================
+    // UPDATE SYSTEM
+    // ==========================================================
+    //
+    // Start checking for a newer version of Offor Vocal Pro.
+    //
+    // The actual network request is handled by UpdateChecker
+    // on a background thread, so this does not block audio.
+    //
+    // ==========================================================
+
+    updateChecker =
+    std::make_unique<UpdateChecker>();
+
+    updateNotification =
+    std::make_unique<UpdateNotification>(*this);
+
+    addAndMakeVisible(*updateNotification);
+
+    // Hidden until an update is actually found.
+    updateNotification->setVisible(false);
+
+    // Start the automatic update check.
+    checkForUpdates();
 
     startTimerHz(20);
 }
@@ -4168,796 +4194,902 @@ OfforVocalProAudioProcessorEditor::paint(
 void
 OfforVocalProAudioProcessorEditor::resized()
 {
-    // ==========================================================
-    // REAL UI SCALING
-    // ==========================================================
-    //
-    // All layout coordinates below are written against the
-    // original 100% design size.
-    //
-    // We convert those logical coordinates into actual pixels.
-    //
-    // This means the existing carefully designed layout can
-    // remain intact while the entire interface scales.
-    //
-    // ==========================================================
+// ==========================================================
+// REAL UI SCALING
+// ==========================================================
+//
+// All coordinates are based on the original 100% design.
+// The complete interface scales from that design size.
+//
+// ==========================================================
 
-    const double scale =
-        uiScale > 0.0
-            ? uiScale
-            : 1.0;
 
-    // ----------------------------------------------------------
-    // Helper for scaling integer coordinates.
-    // ----------------------------------------------------------
+const double scale =
+    uiScale > 0.0
+        ? uiScale
+        : 1.0;
 
-    const auto S =
-        [scale](int value)
-        {
-            return juce::roundToInt(
-                static_cast<double>(value) * scale);
-        };
+// ----------------------------------------------------------
+// Scale coordinate.
+// ----------------------------------------------------------
 
-    // ----------------------------------------------------------
-    // Helper for scaling dimensions.
-    // ----------------------------------------------------------
-
-    const auto SW =
-        [scale](int value)
-        {
-            return juce::jmax(
-                1,
-                juce::roundToInt(
-                    static_cast<double>(value) * scale));
-        };
-
-    // ==========================================================
-    // LOGICAL 100% DESIGN SIZE
-    // ==========================================================
-
-    const int w =
-        S(baseEditorWidth);
-
-    const int h =
-        S(baseEditorHeight);
-
-    // ==========================================================
-    // HEADER
-    // ==========================================================
-
-    setScaledBounds(
-        titleLabel,
-        68,
-        11,
-        240,
-        24);
-
-    setScaledBounds(
-        subtitleLabel,
-        69,
-        35,
-        180,
-        14);
-
-    // ----------------------------------------------------------
-    // HEADER CONTROL LAYOUT
-    // ----------------------------------------------------------
-    //
-    // Keep the controls compact and aligned on the right.
-    //
-    // PRESET -> SAVE -> A -> B -> SETTINGS -> BYPASS
-    //
-    // The version label is moved closer to the title so it does
-    // not compete with the preset controls.
-    //
-
-    setScaledBounds(
-        versionLabel,
-        310,
-        20,
-        55,
-        20);
-
-    setScaledBounds(
-        bypassButton,
-        w - 112,
-        17,
-        90,
-        30);
-
-    // setScaledBounds(
-    //     settingsButton,
-    //     w - 205,
-    //     16,
-    //     48,
-    //     32);
-
-    // ==========================================================
-    // SETTINGS BUTTON
-    // ==========================================================
-    //
-    // Smaller icon keeps the header clean and leaves more space
-    // for the preset controls.
-    //
-
-    setScaledBounds(
-        settingsButton,
-        w - 245,
-        17,
-        30,
-        30);
-
-    // ==========================================================
-    // PRESET / A-B HEADER CONTROLS
-    // ==========================================================
-    //
-    // Layout:
-    //
-    // PRESET -> MENU -> A -> B -> SETTINGS -> BYPASS
-    //
-    // LOAD and SAVE are hidden inside MENU.
-    // This saves considerable header space.
-    //
-
-    const int presetY = 17;
-
-    // ----------------------------------------------------------
-    // Factory preset selector
-    // ----------------------------------------------------------
-
-    presetComboBox.setBounds(
-        w - 525,
-        presetY,
-        155,
-        30);
-
-    // ----------------------------------------------------------
-    // Small preset menu button
-    // ----------------------------------------------------------
-
-    presetMenuButton.setBounds(
-        w - 365,
-        presetY,
-        28,
-        30);
-
-    // ----------------------------------------------------------
-    // A / B comparison buttons
-    // ----------------------------------------------------------
-
-    aButton.setBounds(
-        w - 330,
-        presetY,
-        30,
-        30);
-
-    bButton.setBounds(
-        w - 293,
-        presetY,
-        30,
-        30);
-
-    // ==========================================================
-    // MODULE RAIL
-    // ==========================================================
-
-    const int railX = 22;
-    const int railY = 110;
-    const int railWidth = 150;
-    const int buttonHeight = 56;
-    const int gap = 8;
-
-    setScaledBounds(
-        tunerButton,
-        railX,
-        railY,
-        railWidth,
-        buttonHeight);
-
-    doublerButton.setBounds(
-        railX,
-        railY + (buttonHeight + gap),
-        railWidth,
-        buttonHeight);
-
-    harmonyButton.setBounds(
-        railX,
-        railY + (buttonHeight + gap) * 2,
-        railWidth,
-        buttonHeight);
-
-    fxButton.setBounds(
-        railX,
-        railY + (buttonHeight + gap) * 3,
-        railWidth,
-        buttonHeight);
-
-    spaceButton.setBounds(
-        railX,
-        railY + (buttonHeight + gap) * 4,
-        railWidth,
-        buttonHeight);
-
-    // ==========================================================
-    // MAIN PANEL
-    // ==========================================================
-
-    const int panelX = 196;
-    const int panelY = 76;
-    const int panelW = w - 212;
-    const int panelH = h - panelY - 98;
-
-    // ==========================================================
-    // MAIN PANEL CONTENT AREA
-    // ==========================================================
-    //
-    // Reserve the right side of the panel for the INPUT/OUTPUT
-    // level meters. This prevents module controls from extending
-    // underneath the meters.
-    //
-
-    const int innerX = panelX + 24;
-
-    // Width reserved for the two vertical meters plus:
-    // - 10 px gap between meters
-    // - 22 px right margin
-    // - 24 px breathing room before the meters
-    //
-    const int meterReservedWidth = 48 + 10 + 48 + 22 + 24;
-
-    const int innerW =
-        panelW - 48 - meterReservedWidth;
-
-    // ==========================================================
-    // TUNER
-    // ==========================================================
-
-    // tunerTitleLabel.setBounds(
-    //     innerX,
-    //     panelY + 14,
-    //     200,
-    //     24);
-
-    tunerStatusLabel.setBounds(
-        panelX + panelW - 120,
-        panelY + 16,
-        90,
-        20);
-
-    detectedNoteLabel.setBounds(
-        innerX,
-        panelY + 70,
-        180,
-        68);
-
-    detectedFrequencyLabel.setBounds(
-        innerX,
-        panelY + 139,
-        160,
-        22);
-
-    detectedCentsLabel.setBounds(
-        innerX,
-        panelY + 163,
-        160,
-        22);
-
-    detectedConfidenceLabel.setBounds(
-        innerX,
-        panelY + 187,
-        180,
-        22);
-
-    const int selectY =
-        panelY + 230;
-
-    const int selectWidth =
-        juce::jmax(
-            105,
-            (innerW - 20) / 3);
-
-    keyLabel.setBounds(
-        innerX,
-        selectY,
-        selectWidth,
-        15);
-
-    keyComboBox.setBounds(
-        innerX,
-        selectY + 17,
-        selectWidth,
-        32);
-
-    scaleLabel.setBounds(
-        innerX + selectWidth + 10,
-        selectY,
-        selectWidth,
-        15);
-
-    scaleComboBox.setBounds(
-        innerX + selectWidth + 10,
-        selectY + 17,
-        selectWidth,
-        32);
-
-    modeLabel.setBounds(
-        innerX + (selectWidth + 10) * 2,
-        selectY,
-        selectWidth,
-        15);
-
-    modeComboBox.setBounds(
-        innerX + (selectWidth + 10) * 2,
-        selectY + 17,
-        selectWidth,
-        32);
-
-    const int tunerKnobY =
-        panelY + panelH - 115;
-
-    const int tunerKnobWidth =
-        juce::jmax(
-            70,
-            (innerW - 36) / 4);
-
-    ProfessionalKnob* tunerSliders[] =
+const auto S =
+    [scale](int value)
     {
-        &tunerRetuneSlider,
-        &tunerSmoothSlider,
-        &tunerFormantSlider,
-        &tunerMixSlider
+        return juce::roundToInt(
+            static_cast<double>(value) * scale);
     };
 
-    juce::Label* tunerLabels[] =
+// ----------------------------------------------------------
+// Scale dimension while guaranteeing at least 1 pixel.
+// ----------------------------------------------------------
+
+const auto SW =
+    [scale](int value)
     {
-        &tunerRetuneLabel,
-        &tunerSmoothLabel,
-        &tunerFormantLabel,
-        &tunerMixLabel
+        return juce::jmax(
+            1,
+            juce::roundToInt(
+                static_cast<double>(value) * scale));
     };
 
-    for (int i = 0; i < 4; ++i)
-    {
-        const int x =
-            innerX + i * (tunerKnobWidth + 12);
+// ==========================================================
+// LOGICAL DESIGN SIZE
+// ==========================================================
 
-        tunerLabels[i]->setBounds(
-            x,
-            tunerKnobY,
-            tunerKnobWidth,
-            16);
+const int w =
+    S(baseEditorWidth);
 
-        tunerSliders[i]->setBounds(
-            x,
-            tunerKnobY + 12,
-            tunerKnobWidth,
-            80);
-    }
+const int h =
+    S(baseEditorHeight);
 
-    // ==========================================================
-    // DOUBLER
-    // ==========================================================
+// ==========================================================
+// HEADER
+// ==========================================================
 
-    // Three controls on the first row.
-    // Two controls on the second row.
-    //
-    // This prevents the knobs from entering the meter area
-    // and gives the Doubler module a cleaner hardware layout.
+setScaledBounds(
+    titleLabel,
+    68,
+    11,
+    240,
+    24);
 
-    const int dY =
-        panelY + 95;
+setScaledBounds(
+    subtitleLabel,
+    69,
+    35,
+    180,
+    14);
 
-    const int dGap = 18;
+setScaledBounds(
+    versionLabel,
+    310,
+    20,
+    55,
+    20);
 
-    const int dTopWidth =
-        juce::jmax(
-            80,
-            (innerW - dGap * 2) / 3);
+setScaledBounds(
+    bypassButton,
+    w - 112,
+    17,
+    90,
+    30);
 
-    const int dBottomWidth =
-        juce::jmax(
-            80,
-            (innerW - dGap) / 2);
+// ==========================================================
+// SETTINGS BUTTON
+// ==========================================================
 
-    ProfessionalKnob* dSliders[] =
-    {
-        &doublerAmountSlider,
-        &doublerDetuneSlider,
-        &doublerTimingSlider,
-        &doublerWidthSlider,
-        &doublerMixSlider
-    };
+setScaledBounds(
+    settingsButton,
+    w - 245,
+    17,
+    30,
+    30);
 
-    juce::Label* dLabels[] =
-    {
-        &doublerAmountLabel,
-        &doublerDetuneLabel,
-        &doublerTimingLabel,
-        &doublerWidthLabel,
-        &doublerMixLabel
-    };
+// ==========================================================
+// PRESET / A-B HEADER CONTROLS
+// ==========================================================
 
-    // ----------------------------------------------------------
-    // TOP ROW
-    // ----------------------------------------------------------
+const int presetY = 17;
 
-    for (int i = 0; i < 3; ++i)
-    {
-        const int x =
-            innerX + i * (dTopWidth + dGap);
+presetComboBox.setBounds(
+    w - 525,
+    presetY,
+    155,
+    30);
 
-        dLabels[i]->setBounds(
-            x,
-            dY,
-            dTopWidth,
-            18);
+presetMenuButton.setBounds(
+    w - 365,
+    presetY,
+    28,
+    30);
 
-        dSliders[i]->setBounds(
-            x,
-            dY + 18,
-            dTopWidth,
-            90);
-    }
+aButton.setBounds(
+    w - 330,
+    presetY,
+    30,
+    30);
 
-    // ----------------------------------------------------------
-    // BOTTOM ROW
-    // ----------------------------------------------------------
+bButton.setBounds(
+    w - 293,
+    presetY,
+    30,
+    30);
 
-    const int bottomY =
-        dY + 125;
+// ==========================================================
+// MODULE RAIL
+// ==========================================================
 
-    for (int i = 0; i < 2; ++i)
-    {
-        const int x =
-            innerX + i * (dBottomWidth + dGap);
+const int railX = 22;
+const int railY = 110;
+const int railWidth = 150;
+const int moduleButtonHeight = 56;
+const int moduleGap = 8;
 
-        dLabels[i + 3]->setBounds(
-            x,
-            bottomY,
-            dBottomWidth,
-            18);
+setScaledBounds(
+    tunerButton,
+    railX,
+    railY,
+    railWidth,
+    moduleButtonHeight);
 
-        dSliders[i + 3]->setBounds(
-            x,
-            bottomY + 18,
-            dBottomWidth,
-            90);
-    }
+setScaledBounds(
+    doublerButton,
+    railX,
+    railY + (moduleButtonHeight + moduleGap),
+    railWidth,
+    moduleButtonHeight);
 
-    // ==========================================================
-    // HARMONY
-    // ==========================================================
-    //
-    // Keep the voice selectors compact so they remain well away
-    // from the right-side level meters.
-    //
+setScaledBounds(
+    harmonyButton,
+    railX,
+    railY + (moduleButtonHeight + moduleGap) * 2,
+    railWidth,
+    moduleButtonHeight);
 
-    const int harmonyY =
-        panelY + 88;
+setScaledBounds(
+    fxButton,
+    railX,
+    railY + (moduleButtonHeight + moduleGap) * 3,
+    railWidth,
+    moduleButtonHeight);
 
-    const int harmonyRowHeight =
-        43;
+setScaledBounds(
+    spaceButton,
+    railX,
+    railY + (moduleButtonHeight + moduleGap) * 4,
+    railWidth,
+    moduleButtonHeight);
 
-    const int harmonyLabelWidth =
-        72;
+// ==========================================================
+// MAIN PANEL
+// ==========================================================
 
-    const int harmonyBoxWidth =
-        juce::jmin(
-            250,
-            innerW - harmonyLabelWidth - 10);
+const int panelX = 196;
+const int panelY = 76;
+const int panelW = w - 212;
+const int panelH = h - panelY - 98;
 
-    juce::ComboBox* harmonyBoxes[] =
-    {
-        &harmonyVoice1ComboBox,
-        &harmonyVoice2ComboBox,
-        &harmonyVoice3ComboBox,
-        &harmonyVoice4ComboBox
-    };
+// ==========================================================
+// MAIN PANEL CONTENT AREA
+// ==========================================================
 
-    juce::Label* harmonyLabels[] =
-    {
-        &harmonyVoice1Label,
-        &harmonyVoice2Label,
-        &harmonyVoice3Label,
-        &harmonyVoice4Label
-    };
+const int innerX =
+    panelX + 24;
 
-    for (int i = 0; i < 4; ++i)
-    {
-        const int y =
-            harmonyY + i * harmonyRowHeight;
+// Reserve the right side for the level meters.
+const int meterReservedWidth =
+    48 + 10 + 48 + 22 + 24;
 
-        harmonyLabels[i]->setBounds(
-            innerX,
-            y,
-            harmonyLabelWidth,
-            32);
+const int innerW =
+    juce::jmax(
+        300,
+        panelW - 48 - meterReservedWidth);
 
-        harmonyBoxes[i]->setBounds(
-            innerX + harmonyLabelWidth + 10,
-            y,
-            harmonyBoxWidth,
-            34);
-    }
+// ==========================================================
+// TUNER
+// ==========================================================
 
-    // ----------------------------------------------------------
-    // HARMONY MIX
-    // ----------------------------------------------------------
+tunerStatusLabel.setBounds(
+    panelX + panelW - 120,
+    panelY + 16,
+    90,
+    20);
 
-    harmonyMixLabel.setBounds(
-        innerX,
-        harmonyY + 180,
-        120,
+detectedNoteLabel.setBounds(
+    innerX,
+    panelY + 70,
+    180,
+    68);
+
+detectedFrequencyLabel.setBounds(
+    innerX,
+    panelY + 139,
+    160,
+    22);
+
+detectedCentsLabel.setBounds(
+    innerX,
+    panelY + 163,
+    160,
+    22);
+
+detectedConfidenceLabel.setBounds(
+    innerX,
+    panelY + 187,
+    180,
+    22);
+
+// ----------------------------------------------------------
+// TUNER KEY / SCALE / MODE
+// ----------------------------------------------------------
+
+const int selectY =
+    panelY + 230;
+
+const int selectGap = 10;
+
+const int selectWidth =
+    juce::jmax(
+        105,
+        (innerW - selectGap * 2) / 3);
+
+keyLabel.setBounds(
+    innerX,
+    selectY,
+    selectWidth,
+    15);
+
+keyComboBox.setBounds(
+    innerX,
+    selectY + 17,
+    selectWidth,
+    32);
+
+scaleLabel.setBounds(
+    innerX + selectWidth + selectGap,
+    selectY,
+    selectWidth,
+    15);
+
+scaleComboBox.setBounds(
+    innerX + selectWidth + selectGap,
+    selectY + 17,
+    selectWidth,
+    32);
+
+modeLabel.setBounds(
+    innerX + (selectWidth + selectGap) * 2,
+    selectY,
+    selectWidth,
+    15);
+
+modeComboBox.setBounds(
+    innerX + (selectWidth + selectGap) * 2,
+    selectY + 17,
+    selectWidth,
+    32);
+
+// ----------------------------------------------------------
+// TUNER KNOBS
+// ----------------------------------------------------------
+//
+// IMPORTANT:
+//
+// The label is now completely separated from the knob
+// component.
+//
+// LABEL
+//   ↓
+// KNOB
+//   ↓
+// VALUE
+//
+// The ProfessionalKnob itself contains the physical knob
+// and its value display.
+//
+// ----------------------------------------------------------
+
+const int tunerLabelY =
+    panelY + panelH - 132;
+
+const int tunerKnobY =
+    tunerLabelY + 20;
+
+const int tunerKnobHeight = 94;
+
+const int tunerGap = 12;
+
+const int tunerKnobWidth =
+    juce::jmax(
+        70,
+        (innerW - tunerGap * 3) / 4);
+
+ProfessionalKnob* tunerSliders[] =
+{
+    &tunerRetuneSlider,
+    &tunerSmoothSlider,
+    &tunerFormantSlider,
+    &tunerMixSlider
+};
+
+juce::Label* tunerLabels[] =
+{
+    &tunerRetuneLabel,
+    &tunerSmoothLabel,
+    &tunerFormantLabel,
+    &tunerMixLabel
+};
+
+for (int i = 0; i < 4; ++i)
+{
+    const int x =
+        innerX +
+        i * (tunerKnobWidth + tunerGap);
+
+    // Label centered above knob.
+    tunerLabels[i]->setBounds(
+        x,
+        tunerLabelY,
+        tunerKnobWidth,
         18);
 
-    harmonyMixSlider.setBounds(
-        innerX,
-        harmonyY + 200,
-        160,
-        90);
+    tunerLabels[i]->setJustificationType(
+        juce::Justification::centred);
 
-    // ==========================================================
-    // CREATIVE FX
-    // ==========================================================
+    // Physical knob + value box.
+    tunerSliders[i]->setBounds(
+        x,
+        tunerKnobY,
+        tunerKnobWidth,
+        tunerKnobHeight);
+}
 
-    // Keep the effect selector inside the module content area.
-    // The right side is reserved for the level meters.
+// ==========================================================
+// DOUBLER
+// ==========================================================
 
-    creativeFxTypeLabel.setBounds(
-        innerX,
-        panelY + 96,
-        100,
-        18);
+const int dY =
+    panelY + 95;
 
-    const int fxComboWidth =
-        juce::jmin(
-            300,
-            innerW);
+const int dGap = 18;
 
-    creativeFxTypeComboBox.setBounds(
-        innerX,
-        panelY + 120,
-        fxComboWidth,
-        38);
+const int dLabelHeight = 18;
+const int dKnobHeight = 104;
+const int dRowGap = 18;
 
-    const int fxKnobY =
-        panelY + 195;
-
-    creativeFxAmountLabel.setBounds(
-        innerX,
-        fxKnobY,
-        100,
-        18);
-
-    creativeFxAmountSlider.setBounds(
-        innerX,
-        fxKnobY + 18,
-        150,
-        105);
-
-    creativeFxMixLabel.setBounds(
-        innerX + 190,
-        fxKnobY,
-        100,
-        18);
-
-    creativeFxMixSlider.setBounds(
-        innerX + 190,
-        fxKnobY + 18,
-        150,
-        105);
-
-    // ==========================================================
-    // SPACE
-    // ==========================================================
-
-    // Keep the Space type selector compact and away from the
-    // right-side level meters.
-
-    spaceTypeLabel.setBounds(
-        innerX,
-        panelY + 96,
+const int dTopWidth =
+    juce::jmax(
         80,
-        18);
+        (innerW - dGap * 2) / 3);
 
-    const int spaceComboWidth =
-        juce::jmin(
-            300,
-            innerW);
+const int dBottomWidth =
+    juce::jmax(
+        80,
+        (innerW - dGap) / 2);
 
-    spaceTypeComboBox.setBounds(
+ProfessionalKnob* dSliders[] =
+{
+    &doublerAmountSlider,
+    &doublerDetuneSlider,
+    &doublerTimingSlider,
+    &doublerWidthSlider,
+    &doublerMixSlider
+};
+
+juce::Label* dLabels[] =
+{
+    &doublerAmountLabel,
+    &doublerDetuneLabel,
+    &doublerTimingLabel,
+    &doublerWidthLabel,
+    &doublerMixLabel
+};
+
+// ----------------------------------------------------------
+// DOUBLER TOP ROW
+// ----------------------------------------------------------
+
+const int dTopLabelY =
+    dY;
+
+const int dTopKnobY =
+    dTopLabelY + dLabelHeight;
+
+for (int i = 0; i < 3; ++i)
+{
+    const int x =
+        innerX +
+        i * (dTopWidth + dGap);
+
+    dLabels[i]->setBounds(
+        x,
+        dTopLabelY,
+        dTopWidth,
+        dLabelHeight);
+
+    dLabels[i]->setJustificationType(
+        juce::Justification::centred);
+
+    dSliders[i]->setBounds(
+        x,
+        dTopKnobY,
+        dTopWidth,
+        dKnobHeight);
+}
+
+// ----------------------------------------------------------
+// DOUBLER BOTTOM ROW
+// ----------------------------------------------------------
+
+const int bottomY =
+    dTopKnobY +
+    dKnobHeight +
+    dRowGap;
+
+for (int i = 0; i < 2; ++i)
+{
+    const int x =
+        innerX +
+        i * (dBottomWidth + dGap);
+
+    dLabels[i + 3]->setBounds(
+        x,
+        bottomY,
+        dBottomWidth,
+        dLabelHeight);
+
+    dLabels[i + 3]->setJustificationType(
+        juce::Justification::centred);
+
+    dSliders[i + 3]->setBounds(
+        x,
+        bottomY + dLabelHeight,
+        dBottomWidth,
+        dKnobHeight);
+}
+
+// ==========================================================
+// HARMONY
+// ==========================================================
+
+const int harmonyY =
+    panelY + 88;
+
+const int harmonyRowHeight =
+    43;
+
+const int harmonyLabelWidth =
+    72;
+
+const int harmonyBoxWidth =
+    juce::jmin(
+        250,
+        innerW - harmonyLabelWidth - 10);
+
+juce::ComboBox* harmonyBoxes[] =
+{
+    &harmonyVoice1ComboBox,
+    &harmonyVoice2ComboBox,
+    &harmonyVoice3ComboBox,
+    &harmonyVoice4ComboBox
+};
+
+juce::Label* harmonyLabels[] =
+{
+    &harmonyVoice1Label,
+    &harmonyVoice2Label,
+    &harmonyVoice3Label,
+    &harmonyVoice4Label
+};
+
+for (int i = 0; i < 4; ++i)
+{
+    const int y =
+        harmonyY +
+        i * harmonyRowHeight;
+
+    harmonyLabels[i]->setBounds(
         innerX,
-        panelY + 120,
-        spaceComboWidth,
-        38);
+        y,
+        harmonyLabelWidth,
+        32);
 
-    const int sY =
-        panelY + 205;
+    harmonyBoxes[i]->setBounds(
+        innerX + harmonyLabelWidth + 10,
+        y,
+        harmonyBoxWidth,
+        34);
+}
 
-    const int sGap = 14;
+// ----------------------------------------------------------
+// HARMONY MIX KNOB
+// ----------------------------------------------------------
 
-    const int sWidth =
-        juce::jmax(
-            70,
-            (innerW - sGap * 4) / 5);
+const int harmonyMixLabelY =
+    harmonyY + 180;
 
-    ProfessionalKnob* sSliders[] =
-    {
-        &spaceSizeSlider,
-        &spaceDecaySlider,
-        &spacePreDelaySlider,
-        &spaceDampingSlider,
-        &spaceMixSlider
-    };
+harmonyMixLabel.setBounds(
+    innerX,
+    harmonyMixLabelY,
+    160,
+    18);
 
-    juce::Label* sLabels[] =
-    {
-        &spaceSizeLabel,
-        &spaceDecayLabel,
-        &spacePreDelayLabel,
-        &spaceDampingLabel,
-        &spaceMixLabel
-    };
+harmonyMixLabel.setJustificationType(
+    juce::Justification::centred);
 
-    for (int i = 0; i < 5; ++i)
-    {
-        const int x =
-            innerX + i * (sWidth + sGap);
+harmonyMixSlider.setBounds(
+    innerX,
+    harmonyMixLabelY + 20,
+    160,
+    100);
 
-        sLabels[i]->setBounds(
-            x,
-            sY,
-            sWidth,
-            18);
+// ==========================================================
+// CREATIVE FX
+// ==========================================================
 
-        sSliders[i]->setBounds(
-            x,
-            sY + 18,
-            sWidth,
-            100);
-    }
+creativeFxTypeLabel.setBounds(
+    innerX,
+    panelY + 96,
+    100,
+    18);
 
-    // ==========================================================
-    // GLOBAL HARDWARE KNOBS
-    // ==========================================================
+const int fxComboWidth =
+    juce::jmin(
+        300,
+        innerW);
 
-    const int footerY =
-        h - 88;
+creativeFxTypeComboBox.setBounds(
+    innerX,
+    panelY + 120,
+    fxComboWidth,
+    38);
 
-    const int footerX =
-        196;
+// ----------------------------------------------------------
+// FX KNOB GROUP
+// ----------------------------------------------------------
 
-    const int footerW =
-        w - 212;
+const int fxLabelY =
+    panelY + 190;
 
-    const int globalKnobSize =
-        64;
+const int fxKnobY =
+    fxLabelY + 20;
 
-    const int globalGroupWidth =
-        footerW / 3;
+const int fxKnobWidth =
+    150;
 
-    // ----------------------------------------------------------
-    // INPUT
-    // ----------------------------------------------------------
+const int fxGap =
+    40;
 
-    inputLabel.setBounds(
-        footerX,
-        footerY + 2,
-        globalGroupWidth,
-        16);
+creativeFxAmountLabel.setBounds(
+    innerX,
+    fxLabelY,
+    fxKnobWidth,
+    18);
 
-    inputSlider.setBounds(
-        footerX
-            + (globalGroupWidth - globalKnobSize) / 2,
-        footerY + 15,
-        globalKnobSize,
-        54);
+creativeFxAmountLabel.setJustificationType(
+    juce::Justification::centred);
 
-    // ----------------------------------------------------------
-    // MIX
-    // ----------------------------------------------------------
+creativeFxAmountSlider.setBounds(
+    innerX,
+    fxKnobY,
+    fxKnobWidth,
+    105);
 
-    globalMixLabel.setBounds(
-        footerX + globalGroupWidth,
-        footerY + 2,
-        globalGroupWidth,
-        16);
+creativeFxMixLabel.setBounds(
+    innerX + fxKnobWidth + fxGap,
+    fxLabelY,
+    fxKnobWidth,
+    18);
 
-    globalMixSlider.setBounds(
-        footerX
-            + globalGroupWidth
-            + (globalGroupWidth - globalKnobSize) / 2,
-        footerY + 15,
-        globalKnobSize,
-        54);
+creativeFxMixLabel.setJustificationType(
+    juce::Justification::centred);
 
-    // ----------------------------------------------------------
-    // OUTPUT
-    // ----------------------------------------------------------
+creativeFxMixSlider.setBounds(
+    innerX + fxKnobWidth + fxGap,
+    fxKnobY,
+    fxKnobWidth,
+    105);
 
-    outputLabel.setBounds(
-        footerX + globalGroupWidth * 2,
-        footerY + 2,
-        globalGroupWidth,
-        16);
+// ==========================================================
+// SPACE
+// ==========================================================
 
-    outputSlider.setBounds(
-        footerX
-            + globalGroupWidth * 2
-            + (globalGroupWidth - globalKnobSize) / 2,
-        footerY + 15,
-        globalKnobSize,
-        54);
+spaceTypeLabel.setBounds(
+    innerX,
+    panelY + 96,
+    80,
+    18);
 
-    // ==========================================================
-    // INPUT / OUTPUT LEVEL METERS
-    // ==========================================================
-    //
-    // Two vertical meters standing shoulder-to-shoulder.
-    // They live on the right side of the main panel.
-    //
-    // IMPORTANT:
-    // These do not interfere with the existing INPUT/MIX/OUTPUT
-    // knobs in the footer.
-    //
+const int spaceComboWidth =
+    juce::jmin(
+        300,
+        innerW);
 
-    const int meterWidth = 48;
-    const int meterHeight = 150;
-    const int meterGap = 10;
+spaceTypeComboBox.setBounds(
+    innerX,
+    panelY + 120,
+    spaceComboWidth,
+    38);
 
-    const int meterRightMargin = 22;
+// ----------------------------------------------------------
+// SPACE KNOBS
+// ----------------------------------------------------------
 
-    const int metersTotalWidth =
-        meterWidth * 2 + meterGap;
+const int sLabelY =
+    panelY + 198;
 
-    const int metersX =
-        panelX
-        + panelW
-        - meterRightMargin
-        - metersTotalWidth;
+const int sKnobY =
+    sLabelY + 20;
 
-    const int metersY =
-        panelY + 82;
+const int sLabelHeight =
+    18;
 
-    inputMeter.setBounds(
-        metersX,
-        metersY,
-        meterWidth,
-        meterHeight);
+const int sKnobHeight =
+    108;
 
-    outputMeter.setBounds(
-        metersX + meterWidth + meterGap,
-        metersY,
-        meterWidth,
-        meterHeight);
+const int sGap =
+    14;
 
-     // ==========================================================
-    // LICENSE OVERLAY
-    // ==========================================================
-    // The overlay must always cover the complete editor.
-    // Keep this at the END of resized().
-    if (licenseOverlay != nullptr)
-    {
-        licenseOverlay->setBounds(getLocalBounds());
+const int sWidth =
+    juce::jmax(
+        70,
+        (innerW - sGap * 4) / 5);
 
-        // Make absolutely sure it stays above the plugin UI.
-        licenseOverlay->toFront(true);
-    }
+ProfessionalKnob* sSliders[] =
+{
+    &spaceSizeSlider,
+    &spaceDecaySlider,
+    &spacePreDelaySlider,
+    &spaceDampingSlider,
+    &spaceMixSlider
+};
 
-    // ==========================================================
-    // SETTINGS PANEL
-    // ==========================================================
-    // Keep the settings screen exactly the same size as the
-    // plugin editor and above all other components.
-    if (settingsPanel != nullptr)
-    {
-        settingsPanel->setBounds(getLocalBounds());
+juce::Label* sLabels[] =
+{
+    &spaceSizeLabel,
+    &spaceDecayLabel,
+    &spacePreDelayLabel,
+    &spaceDampingLabel,
+    &spaceMixLabel
+};
 
-        if (settingsPanel->isVisible())
-            settingsPanel->toFront(true);
-    }
+for (int i = 0; i < 5; ++i)
+{
+    const int x =
+        innerX +
+        i * (sWidth + sGap);
+
+    sLabels[i]->setBounds(
+        x,
+        sLabelY,
+        sWidth,
+        sLabelHeight);
+
+    sLabels[i]->setJustificationType(
+        juce::Justification::centred);
+
+    sSliders[i]->setBounds(
+        x,
+        sKnobY,
+        sWidth,
+        sKnobHeight);
+}
+
+// ==========================================================
+// GLOBAL HARDWARE KNOBS
+// ==========================================================
+//
+// INPUT / MIX / OUTPUT
+//
+// These are treated as three equal hardware control groups.
+//
+// LABEL
+//   ↓
+// KNOB
+//
+// This keeps the label centered exactly with the physical
+// knob instead of relying on the left edge of the group.
+//
+// ==========================================================
+
+const int footerY =
+    h - 88;
+
+const int footerX =
+    196;
+
+const int footerW =
+    w - 212;
+
+const int globalKnobSize =
+    64;
+
+const int globalLabelHeight =
+    18;
+
+const int globalLabelY =
+    footerY;
+
+const int globalKnobY =
+    footerY + 20;
+
+const int globalKnobHeight =
+    54;
+
+const int globalGroupWidth =
+    footerW / 3;
+
+// ----------------------------------------------------------
+// INPUT
+// ----------------------------------------------------------
+
+const int inputGroupX =
+    footerX;
+
+inputLabel.setBounds(
+    inputGroupX,
+    globalLabelY,
+    globalGroupWidth,
+    globalLabelHeight);
+
+inputLabel.setJustificationType(
+    juce::Justification::centred);
+
+inputSlider.setBounds(
+    inputGroupX +
+        (globalGroupWidth - globalKnobSize) / 2,
+    globalKnobY,
+    globalKnobSize,
+    globalKnobHeight);
+
+// ----------------------------------------------------------
+// MIX
+// ----------------------------------------------------------
+
+const int mixGroupX =
+    footerX + globalGroupWidth;
+
+globalMixLabel.setBounds(
+    mixGroupX,
+    globalLabelY,
+    globalGroupWidth,
+    globalLabelHeight);
+
+globalMixLabel.setJustificationType(
+    juce::Justification::centred);
+
+globalMixSlider.setBounds(
+    mixGroupX +
+        (globalGroupWidth - globalKnobSize) / 2,
+    globalKnobY,
+    globalKnobSize,
+    globalKnobHeight);
+
+// ----------------------------------------------------------
+// OUTPUT
+// ----------------------------------------------------------
+
+const int outputGroupX =
+    footerX + globalGroupWidth * 2;
+
+outputLabel.setBounds(
+    outputGroupX,
+    globalLabelY,
+    globalGroupWidth,
+    globalLabelHeight);
+
+outputLabel.setJustificationType(
+    juce::Justification::centred);
+
+outputSlider.setBounds(
+    outputGroupX +
+        (globalGroupWidth - globalKnobSize) / 2,
+    globalKnobY,
+    globalKnobSize,
+    globalKnobHeight);
+
+// ==========================================================
+// INPUT / OUTPUT LEVEL METERS
+// ==========================================================
+
+const int meterWidth =
+    48;
+
+const int meterHeight =
+    150;
+
+const int meterGap =
+    10;
+
+const int meterRightMargin =
+    22;
+
+const int metersTotalWidth =
+    meterWidth * 2 +
+    meterGap;
+
+const int metersX =
+    panelX +
+    panelW -
+    meterRightMargin -
+    metersTotalWidth;
+
+const int metersY =
+    panelY + 82;
+
+inputMeter.setBounds(
+    metersX,
+    metersY,
+    meterWidth,
+    meterHeight);
+
+outputMeter.setBounds(
+    metersX + meterWidth + meterGap,
+    metersY,
+    meterWidth,
+    meterHeight);
+
+// ==========================================================
+// LICENSE OVERLAY
+// ==========================================================
+//
+// The overlay must always cover the entire editor.
+//
+// Keep this at the END of resized().
+//
+// ==========================================================
+
+if (licenseOverlay != nullptr)
+{
+    licenseOverlay->setBounds(
+        getLocalBounds());
+
+    licenseOverlay->toFront(
+        true);
+}
+
+// ==========================================================
+// SETTINGS PANEL
+// ==========================================================
+//
+// Settings must remain exactly the size of the editor and
+// above the main plugin UI.
+//
+// ==========================================================
+
+if (settingsPanel != nullptr)
+{
+    settingsPanel->setBounds(
+        getLocalBounds());
+
+    if (settingsPanel->isVisible())
+        settingsPanel->toFront(
+            true);
+}
+
+// ==========================================================
+// UPDATE NOTIFICATION
+// ==========================================================
+//
+// Keep update notification above the normal interface but
+// below Settings and License overlay.
+//
+// ==========================================================
+
+if (updateNotification != nullptr)
+{
+    // Preserve its own visibility and bounds logic.
+    // Do not force it visible here.
+    updateNotification->toFront(
+        false);
+}
+
+juce::ignoreUnused(
+    SW);
 
 }
+
 
 //==============================================================================
 // PROFESSIONAL HARDWARE KNOB
@@ -6971,4 +7103,427 @@ OfforVocalProAudioProcessorEditor::loadPresetFromFile(
     //--------------------------------------------------------------------------
 
     updateThemeForChildComponents();
+}
+
+
+
+// ==========================================================
+// UPDATE NOTIFICATION
+// ==========================================================
+
+OfforVocalProAudioProcessorEditor::UpdateNotification::
+UpdateNotification(
+OfforVocalProAudioProcessorEditor& editor)
+: owner(editor)
+{
+// ------------------------------------------------------
+// TITLE
+// ------------------------------------------------------
+
+
+titleLabel.setText(
+    "UPDATE AVAILABLE",
+    juce::dontSendNotification);
+
+titleLabel.setFont(
+    juce::Font(18.0f)
+        .boldened());
+
+titleLabel.setJustificationType(
+    juce::Justification::centredLeft);
+
+addAndMakeVisible(titleLabel);
+
+// ------------------------------------------------------
+// VERSION
+// ------------------------------------------------------
+
+versionLabel.setText(
+    "",
+    juce::dontSendNotification);
+
+versionLabel.setFont(
+    juce::Font(15.0f)
+        .boldened());
+
+versionLabel.setJustificationType(
+    juce::Justification::centredLeft);
+
+addAndMakeVisible(versionLabel);
+
+// ------------------------------------------------------
+// RELEASE NOTES
+// ------------------------------------------------------
+
+releaseNotesLabel.setText(
+    "",
+    juce::dontSendNotification);
+
+releaseNotesLabel.setFont(
+    juce::Font(13.0f));
+
+releaseNotesLabel.setJustificationType(
+    juce::Justification::topLeft);
+
+releaseNotesLabel.setMinimumHorizontalScale(0.8f);
+
+addAndMakeVisible(releaseNotesLabel);
+
+// ------------------------------------------------------
+// DOWNLOAD BUTTON
+// ------------------------------------------------------
+
+downloadButton.setButtonText(
+    "DOWNLOAD UPDATE");
+
+downloadButton.onClick =
+    [this]()
+    {
+        if (downloadUrl.isNotEmpty())
+            owner.openUpdateDownloadPage(
+                downloadUrl);
+    };
+
+addAndMakeVisible(downloadButton);
+
+// ------------------------------------------------------
+// CLOSE BUTTON
+// ------------------------------------------------------
+
+closeButton.setButtonText(
+    "LATER");
+
+closeButton.onClick =
+    [this]()
+    {
+        hideUpdate();
+    };
+
+addAndMakeVisible(closeButton);
+
+
+}
+
+// ==========================================================
+// PAINT
+// ==========================================================
+
+void
+OfforVocalProAudioProcessorEditor::UpdateNotification::
+paint(juce::Graphics& g)
+{
+// ==========================================================
+// UPDATE CARD
+// ==========================================================
+//
+// IMPORTANT:
+// We intentionally do NOT use ThemeManager here.
+//
+// Your ThemeManager does not provide getInstance(),
+// ColourId, panelBackground, accent, etc.
+//
+// Instead, we use the existing JUCE colour scheme and
+// colours already available to this component.
+//
+// ==========================================================
+
+// ----------------------------------------------------------
+// BACKGROUND
+// ----------------------------------------------------------
+
+auto bounds =
+    getLocalBounds()
+        .toFloat();
+
+// Soft shadow
+g.setColour(
+    juce::Colours::black.withAlpha(0.40f));
+
+g.fillRoundedRectangle(
+    bounds.translated(0.0f, 5.0f),
+    14.0f);
+
+// Main card
+g.setColour(
+    juce::Colour(0xff17181d));
+
+g.fillRoundedRectangle(
+    bounds.reduced(1.0f),
+    14.0f);
+
+// ----------------------------------------------------------
+// BORDER
+// ----------------------------------------------------------
+
+g.setColour(
+    juce::Colour(0xff3a3c45));
+
+g.drawRoundedRectangle(
+    bounds.reduced(1.0f),
+    14.0f,
+    1.5f);
+
+// ----------------------------------------------------------
+// ACCENT STRIPE
+// ----------------------------------------------------------
+
+g.setColour(
+    juce::Colour(0xffdf513e));
+
+g.fillRoundedRectangle(
+    0.0f,
+    0.0f,
+    5.0f,
+    static_cast<float>(getHeight()),
+    3.0f);
+
+// ----------------------------------------------------------
+// TEXT COLOURS
+// ----------------------------------------------------------
+
+titleLabel.setColour(
+    juce::Label::textColourId,
+    juce::Colour(0xffdf513e));
+
+versionLabel.setColour(
+    juce::Label::textColourId,
+    juce::Colours::white);
+
+releaseNotesLabel.setColour(
+    juce::Label::textColourId,
+    juce::Colour(0xffc8c9ce));
+}
+
+
+// ==========================================================
+// RESIZED
+// ==========================================================
+
+void
+OfforVocalProAudioProcessorEditor::UpdateNotification::
+resized()
+{
+auto area =
+getLocalBounds()
+.reduced(24);
+
+// Close/later button
+auto topRight =
+    area.removeFromTop(28);
+
+closeButton.setBounds(
+    topRight.removeFromRight(70));
+
+// Title
+titleLabel.setBounds(
+    area.removeFromTop(28));
+
+area.removeFromTop(4);
+
+// Version
+versionLabel.setBounds(
+    area.removeFromTop(25));
+
+area.removeFromTop(8);
+
+// Release notes
+auto buttonsArea =
+    area.removeFromBottom(40);
+
+releaseNotesLabel.setBounds(area);
+
+// Buttons
+downloadButton.setBounds(
+    buttonsArea.removeFromLeft(170));
+
+buttonsArea.removeFromLeft(10);
+
+
+}
+
+// ==========================================================
+// SHOW UPDATE
+// ==========================================================
+
+void
+OfforVocalProAudioProcessorEditor::UpdateNotification::
+showUpdate(
+const UpdateChecker::UpdateInfo& info)
+{
+downloadUrl =
+info.downloadUrl;
+
+
+titleLabel.setText(
+    info.minimumVersionRequired
+        ? "UPDATE REQUIRED"
+        : "UPDATE AVAILABLE",
+    juce::dontSendNotification);
+
+versionLabel.setText(
+    "Offor Vocal Pro "
+    + info.latestVersion
+    + " is available.",
+    juce::dontSendNotification);
+
+juce::String notes;
+
+for (const auto& note :
+     info.releaseNotes)
+{
+    if (notes.isNotEmpty())
+        notes << "\n";
+
+    notes << "• " << note;
+}
+
+if (notes.isEmpty())
+{
+    notes =
+        "A new version of Offor Vocal Pro "
+        "is available.";
+}
+
+releaseNotesLabel.setText(
+    notes,
+    juce::dontSendNotification);
+
+// If the update is required, don't offer
+// the normal "Later" option.
+closeButton.setVisible(
+    !info.minimumVersionRequired);
+
+setVisible(true);
+
+resized();
+repaint();
+
+}
+
+// ==========================================================
+// HIDE UPDATE
+// ==========================================================
+
+void
+OfforVocalProAudioProcessorEditor::UpdateNotification::
+hideUpdate()
+{
+setVisible(false);
+}
+
+// ==========================================================
+// CHECK FOR UPDATES
+// ==========================================================
+
+void
+OfforVocalProAudioProcessorEditor::
+checkForUpdates()
+{
+if (updateChecker == nullptr)
+return;
+
+// ------------------------------------------------------
+// SAFE POINTER
+// ------------------------------------------------------
+//
+// The editor may be destroyed while the network request
+// is still running.
+//
+// SafePointer prevents the callback from accessing an
+// editor that no longer exists.
+//
+// ------------------------------------------------------
+
+juce::Component::SafePointer<
+    OfforVocalProAudioProcessorEditor>
+    safeThis(this);
+
+updateChecker->checkForUpdate(
+    OFFOR_VPRO_VERSION_STRING,
+    [safeThis](
+        const UpdateChecker::UpdateInfo& info)
+    {
+        if (safeThis == nullptr)
+            return;
+
+        safeThis->handleUpdateResult(info);
+    });
+
+
+}
+
+// ==========================================================
+// HANDLE UPDATE RESULT
+// ==========================================================
+
+void
+OfforVocalProAudioProcessorEditor::
+handleUpdateResult(
+const UpdateChecker::UpdateInfo& info)
+{
+// ------------------------------------------------------
+// SERVER / NETWORK ERROR
+// ------------------------------------------------------
+//
+// Do NOT show an error popup.
+//
+// If the user has no internet connection or the server
+// is unavailable, the plugin continues normally.
+//
+// ------------------------------------------------------
+
+
+if (!info.success)
+    return;
+
+// ------------------------------------------------------
+// NO NEW VERSION
+// ------------------------------------------------------
+
+if (!info.updateAvailable)
+    return;
+
+// ------------------------------------------------------
+// SHOW UPDATE CARD
+// ------------------------------------------------------
+
+if (updateNotification != nullptr)
+{
+    updateNotification->showUpdate(info);
+
+    // Keep Settings / License overlays above
+    // the update notification.
+    if (settingsPanel != nullptr
+        && settingsPanel->isVisible())
+    {
+        updateNotification->setVisible(false);
+    }
+
+    if (licenseOverlay != nullptr
+        && licenseOverlay->isVisible())
+    {
+        updateNotification->setVisible(false);
+    }
+}
+
+
+}
+
+// ==========================================================
+// OPEN UPDATE DOWNLOAD PAGE
+// ==========================================================
+
+void
+OfforVocalProAudioProcessorEditor::
+openUpdateDownloadPage(
+const juce::String& url)
+{
+if (url.isEmpty())
+return;
+
+juce::URL downloadURL(url);
+
+downloadURL.launchInDefaultBrowser();
+
+
 }

@@ -75,6 +75,9 @@ target_sources(OfforVocalPro
         Source/UI/ThemeManager.cpp
         Source/UI/ThemeManager.h
 
+        Source/UI/UpdateChecker.h
+        Source/UI/UpdateChecker.cpp
+
         Source/UI/ThemeColorPanel.cpp
         Source/UI/ThemeColorPanel.h
 

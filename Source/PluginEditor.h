@@ -6,6 +6,7 @@
 #include "UI/SettingsPanel.h"
 #include "UI/ThemeManager.h"
 #include "UI/ThemeColorPanel.h"
+#include "UI/UpdateChecker.h"
 
 //==============================================================================
 class OfforVocalProAudioProcessorEditor
@@ -427,6 +428,77 @@ private:
     // It sits above the normal plugin interface and is only
     // displayed when the trial has been exhausted.
     std::unique_ptr<LicenseOverlay> licenseOverlay;
+
+
+
+    // ==========================================================
+    // UPDATE SYSTEM
+    // ==========================================================
+    //
+    // Checks the ChezChris server for a newer version of
+    // Offor Vocal Pro.
+    //
+    // The network request runs on a background thread.
+    // It NEVER runs on the audio thread.
+    //
+    // ==========================================================
+
+    std::unique_ptr<UpdateChecker> updateChecker;
+
+    // ----------------------------------------------------------
+    // UPDATE NOTIFICATION
+    // ----------------------------------------------------------
+
+    class UpdateNotification
+        : public juce::Component
+    {
+    public:
+
+        explicit UpdateNotification(
+            OfforVocalProAudioProcessorEditor& owner);
+
+        void paint(
+            juce::Graphics& g) override;
+
+        void resized() override;
+
+        void showUpdate(
+            const UpdateChecker::UpdateInfo& info);
+
+        void hideUpdate();
+
+    private:
+
+        OfforVocalProAudioProcessorEditor& owner;
+
+        juce::Label titleLabel;
+        juce::Label versionLabel;
+        juce::Label releaseNotesLabel;
+
+        juce::TextButton downloadButton;
+        juce::TextButton closeButton;
+
+        juce::String downloadUrl;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(
+            UpdateNotification
+        )
+    };
+
+    std::unique_ptr<UpdateNotification> updateNotification;
+
+    // ----------------------------------------------------------
+    // UPDATE FUNCTIONS
+    // ----------------------------------------------------------
+
+    void checkForUpdates();
+
+    void handleUpdateResult(
+        const UpdateChecker::UpdateInfo& info);
+
+    void openUpdateDownloadPage(
+        const juce::String& url);
+
 
 
     // ==========================================================

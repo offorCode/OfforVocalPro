@@ -4,7 +4,6 @@
 
 #include "ThemeManager.h"
 #include "ThemeColorPanel.h"
-
 #include "FeedbackPanel.h"
 
 //==============================================================================
@@ -55,6 +54,7 @@ public:
     std::function<void(const juce::String&)> onCPUModeChanged;
 
     //==========================================================================
+
     SettingsPanel();
 
     ~SettingsPanel() override;
@@ -82,6 +82,7 @@ private:
     };
 
     Page currentPage = Page::general;
+
 
     //==========================================================================
     // TAB BUTTON
@@ -116,7 +117,8 @@ private:
     TabButton performanceTab { "PERFORMANCE" };
     TabButton aboutTab       { "ABOUT" };
     TabButton userGuideTab   { "USER GUIDE" };
-    TabButton feedbackTab { "FEEDBACK" };
+    TabButton feedbackTab    { "FEEDBACK" };
+
 
     //==========================================================================
     // FEEDBACK
@@ -129,6 +131,7 @@ private:
     //==========================================================================
 
     std::unique_ptr<FeedbackPanel> feedbackPanel;
+
 
     //==========================================================================
     // CLOSE BUTTON
@@ -147,6 +150,7 @@ private:
     };
 
     CloseButton closeButton;
+
 
     //==========================================================================
     // CUSTOM TOGGLE
@@ -175,6 +179,7 @@ private:
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ToggleSwitch)
     };
+
 
     //==========================================================================
     // CUSTOM SELECTOR
@@ -208,6 +213,10 @@ private:
         void mouseExit(
             const juce::MouseEvent& event) override;
 
+        void mouseWheelMove(
+            const juce::MouseEvent& event,
+            const juce::MouseWheelDetails& wheel) override;
+
         void mouseDown(
             const juce::MouseEvent& event) override;
 
@@ -223,6 +232,7 @@ private:
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingSelector)
     };
+
 
     //==========================================================================
     // GENERAL PAGE
@@ -243,6 +253,7 @@ private:
     SettingSelector uiScaleSelector;
     SettingSelector themeSelector;
 
+
     //==========================================================================
     // CUSTOM THEME BUTTON
     //==========================================================================
@@ -252,6 +263,7 @@ private:
     std::unique_ptr<ThemeColorPanel> themeColorPanel;
 
     bool customColoursVisible = false;
+
 
     //==========================================================================
     // AUDIO PAGE
@@ -268,6 +280,7 @@ private:
 
     SettingSelector oversamplingSelector;
     SettingSelector qualitySelector;
+
 
     //==========================================================================
     // DISPLAY PAGE
@@ -292,6 +305,7 @@ private:
     SettingSelector displayThemeSelector;
     SettingSelector displayScaleSelector;
 
+
     //==========================================================================
     // PERFORMANCE PAGE
     //==========================================================================
@@ -305,6 +319,7 @@ private:
 
     SettingSelector cpuModeSelector;
     SettingSelector processingQualitySelector;
+
 
     //==========================================================================
     // ABOUT PAGE
@@ -324,36 +339,173 @@ private:
     juce::TextButton websiteButton;
     juce::TextButton supportButton;
 
+
     //==========================================================================
     // USER GUIDE
     //==========================================================================
     //
-    // The guide is intentionally implemented as a Viewport + Label.
+    // The User Guide uses:
     //
-    // This keeps the system lightweight and avoids introducing another
-    // complex UI component into the plugin.
+    //     UserGuideViewport
+    //             +
+    //     Label
     //
-    // The guide automatically scrolls using the SettingsPanel timer.
+    // The viewport handles:
+    //
+    //     - Mouse enter
+    //     - Mouse exit
+    //     - Mouse wheel
+    //     - Mouse dragging
+    //
+    // The SettingsPanel timer handles automatic scrolling.
+    //
+    // IMPORTANT:
+    // There must only be ONE declaration of each User Guide state variable.
     //
     //==========================================================================
-    
+
     juce::Label userGuideTitle;
     juce::Label userGuideDescription;
 
-    juce::Viewport userGuideViewport;
+
+    // ============================================================
+    // USER GUIDE VIEWPORT
+    // Handles mouse hover, wheel scrolling and drag scrolling.
+    // ============================================================
+    class UserGuideViewport : public juce::Viewport
+    {
+    public:
+        UserGuideViewport()
+        {
+            // Make sure the viewport itself receives mouse events.
+            setInterceptsMouseClicks(true, true);
+
+            // Hide JUCE's default scrollbars.
+            setScrollBarsShown(false, false);
+
+            // Allow dragging the guide with the mouse.
+            setScrollOnDragEnabled(true);
+        }
+
+        // --------------------------------------------------------
+        // CALLBACKS
+        // SettingsPanel assigns these in setupUserGuide().
+        // --------------------------------------------------------
+
+        std::function<void()> onMouseEnterGuide;
+        std::function<void()> onMouseExitGuide;
+
+        std::function<void(
+            const juce::MouseEvent&,
+            const juce::MouseWheelDetails&)> onMouseWheelGuide;
+
+        // --------------------------------------------------------
+        // MOUSE ENTER
+        // --------------------------------------------------------
+
+        void mouseEnter(
+            const juce::MouseEvent& event) override
+        {
+            juce::Viewport::mouseEnter(event);
+
+            if (onMouseEnterGuide)
+                onMouseEnterGuide();
+        }
+
+        // --------------------------------------------------------
+        // MOUSE EXIT
+        // --------------------------------------------------------
+
+        void mouseExit(
+            const juce::MouseEvent& event) override
+        {
+            juce::Viewport::mouseExit(event);
+
+            if (onMouseExitGuide)
+                onMouseExitGuide();
+        }
+
+        // --------------------------------------------------------
+        // MOUSE WHEEL
+        // --------------------------------------------------------
+
+        void mouseWheelMove(
+            const juce::MouseEvent& event,
+            const juce::MouseWheelDetails& wheel) override
+        {
+            if (onMouseWheelGuide)
+            {
+                onMouseWheelGuide(
+                    event,
+                    wheel);
+            }
+            else
+            {
+                // Fallback to JUCE's normal viewport scrolling.
+                juce::Viewport::mouseWheelMove(
+                    event,
+                    wheel);
+            }
+        }
+
+    private:
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(
+            UserGuideViewport)
+    };
+
+
+    //==========================================================================
+    // USER GUIDE COMPONENTS
+    //==========================================================================
+
+    UserGuideViewport userGuideViewport;
+
     juce::Label userGuideContent;
 
-    // Current automatic scroll position.
+
+    //==========================================================================
+    // USER GUIDE SCROLL STATE
+    //==========================================================================
+    //
+    // Current automatic/manual scroll position.
+    //
+    // This is declared ONLY ONCE.
+    //
+    //==========================================================================
+
     float userGuideScrollPosition = 0.0f;
 
-    // True while the user is interacting with the guide.
+
+    //==========================================================================
+    // USER GUIDE MOUSE STATE
+    //==========================================================================
     //
-    // Automatic scrolling pauses while the mouse is over the guide
-    // or while the user is manually scrolling.
+    // True while the mouse is over the User Guide.
+    //
+    // Automatic scrolling pauses while this is true.
+    //
+    // This is declared ONLY ONCE.
+    //
+    //==========================================================================
+
     bool userGuideMouseOver = false;
 
-    // Used to give the guide a small delay before auto-scroll resumes.
+
+    //==========================================================================
+    // USER GUIDE IDLE COUNTER
+    //==========================================================================
+    //
+    // Number of timer ticks since the mouse left the guide.
+    //
+    // This provides a small delay before automatic scrolling resumes.
+    //
+    // This is declared ONLY ONCE.
+    //
+    //==========================================================================
+
     int userGuideIdleCounter = 0;
+
 
     //==========================================================================
     // PAGE MANAGEMENT
@@ -367,6 +519,7 @@ private:
     void setupControls();
     void setupAboutPage();
 
+
     //==========================================================================
     // USER GUIDE
     //==========================================================================
@@ -379,17 +532,20 @@ private:
 
     void updateUserGuideLayout();
 
+
     //==========================================================================
     // TIMER
     //==========================================================================
 
     void timerCallback() override;
 
+
     //==========================================================================
     // SETTINGS CALLBACKS
     //==========================================================================
 
     void setupSettingCallbacks();
+
 
     //==========================================================================
     // THEME
@@ -406,6 +562,7 @@ private:
     void syncThemeSelectors(
         const juce::String& theme);
 
+
     //==========================================================================
     // THEME CHANGE LISTENER
     //==========================================================================
@@ -413,12 +570,14 @@ private:
     void changeListenerCallback(
         juce::ChangeBroadcaster* source) override;
 
+
     //==========================================================================
     // PROCESSING QUALITY
     //==========================================================================
 
     void syncProcessingQualitySelectors(
         const juce::String& quality);
+
 
     //==========================================================================
     // LABEL HELPER
@@ -431,6 +590,7 @@ private:
         juce::Colour colour,
         juce::Justification justification =
             juce::Justification::centredLeft);
+
 
     //==========================================================================
     // PAGE DRAWING
@@ -452,6 +612,7 @@ private:
         int y,
         int width);
 
+
     //==========================================================================
     // LEGACY STATIC COLOURS
     //==========================================================================
@@ -470,6 +631,7 @@ private:
     static const juce::Colour mutedColour;
     static const juce::Colour accentColour;
     static const juce::Colour accentDarkColour;
+
 
     //==========================================================================
 

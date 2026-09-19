@@ -423,6 +423,13 @@ void SettingsPanel::SettingSelector::showMenu()
         });
 }
 
+
+//==============================================================================
+// SETTING SELECTOR - MOUSE ENTER
+//==============================================================================
+//
+// Highlights the selector when the mouse enters it.
+//
 //==============================================================================
 
 void SettingsPanel::SettingSelector::mouseEnter(
@@ -431,9 +438,17 @@ void SettingsPanel::SettingSelector::mouseEnter(
     juce::ignoreUnused(event);
 
     mouseOver = true;
+
     repaint();
 }
 
+
+//==============================================================================
+// SETTING SELECTOR - MOUSE EXIT
+//==============================================================================
+//
+// Removes the hover highlight when the mouse leaves the selector.
+//
 //==============================================================================
 
 void SettingsPanel::SettingSelector::mouseExit(
@@ -442,8 +457,36 @@ void SettingsPanel::SettingSelector::mouseExit(
     juce::ignoreUnused(event);
 
     mouseOver = false;
+
     repaint();
 }
+
+
+//==============================================================================
+// SETTING SELECTOR - MOUSE WHEEL
+//==============================================================================
+//
+// Allows the selector to respond to mouse-wheel interaction.
+//
+// The actual menu selection is still handled by showMenu().
+// We intentionally do not change the selected value here.
+//
+//==============================================================================
+
+void SettingsPanel::SettingSelector::mouseWheelMove(
+    const juce::MouseEvent& event,
+    const juce::MouseWheelDetails& wheel)
+{
+    juce::ignoreUnused(event);
+    juce::ignoreUnused(wheel);
+
+    // Keep the selector behaviour unchanged.
+    //
+    // The mouse wheel is intentionally ignored here.
+    // This implementation exists because the function is declared
+    // in SettingsPanel.h.
+}
+
 
 //==============================================================================
 
@@ -1158,7 +1201,7 @@ void SettingsPanel::updateThemeColours()
     aboutTab.repaint();
     userGuideTab.repaint();
 
-    closeButton.repaint();\
+    closeButton.repaint();
 
     feedbackTab.repaint();
 
@@ -1474,8 +1517,7 @@ void SettingsPanel::setupLabels()
 
     configureLabel(
         versionLabel,
-        "Version"
-        + juce::String(OFFOR_VPRO_VERSION_STRING),
+        "Version " + juce::String(OFFOR_VPRO_VERSION_STRING),
         11.0f,
         mutedColour,
         juce::Justification::centred);
@@ -1521,6 +1563,68 @@ void SettingsPanel::setupLabels()
         "Learn the OFFOR Vocal Pro workflow, controls and recommended techniques.",
         11.0f,
         mutedColour);
+
+    
+    //==========================================================================
+    // ADD ALL LABELS TO SETTINGS PANEL
+    //==========================================================================
+    //
+    // IMPORTANT:
+    // configureLabel() only configures a label.
+    //
+    // The label must also be added to SettingsPanel before it can actually
+    // appear on screen.
+    //
+    // This was the reason the setting text/descriptions disappeared while
+    // the combo boxes and switches remained visible.
+    //
+    //==========================================================================
+
+    addAndMakeVisible(generalTitle);
+    addAndMakeVisible(generalDescription);
+    addAndMakeVisible(pluginBehaviourLabel);
+    addAndMakeVisible(enableProcessingLabel);
+    addAndMakeVisible(interfaceLabel);
+    addAndMakeVisible(uiScaleLabel);
+    addAndMakeVisible(themeLabel);
+
+    addAndMakeVisible(audioTitle);
+    addAndMakeVisible(audioDescription);
+    addAndMakeVisible(inputBehaviourLabel);
+    addAndMakeVisible(inputGainLabel);
+    addAndMakeVisible(processingLabel);
+    addAndMakeVisible(oversamplingLabel);
+    addAndMakeVisible(qualityLabel);
+
+    addAndMakeVisible(displayTitle);
+    addAndMakeVisible(displayDescription);
+    addAndMakeVisible(appearanceLabel);
+    addAndMakeVisible(displayThemeLabel);
+    addAndMakeVisible(displayScaleLabel);
+    addAndMakeVisible(visualLabel);
+    addAndMakeVisible(inputMeterLabel);
+    addAndMakeVisible(outputMeterLabel);
+    addAndMakeVisible(tooltipsLabel);
+
+    addAndMakeVisible(performanceTitle);
+    addAndMakeVisible(performanceDescription);
+    addAndMakeVisible(engineLabel);
+    addAndMakeVisible(cpuLabel);
+    addAndMakeVisible(processingQualityLabel);
+
+    addAndMakeVisible(aboutTitle);
+    addAndMakeVisible(aboutDescription);
+    addAndMakeVisible(productNameLabel);
+    addAndMakeVisible(versionLabel);
+    addAndMakeVisible(companyLabel);
+    addAndMakeVisible(descriptionLabel);
+    addAndMakeVisible(licenseTitleLabel);
+    addAndMakeVisible(licenseStatusLabel);
+
+    addAndMakeVisible(userGuideTitle);
+    addAndMakeVisible(userGuideDescription);
+
+
 }
 
 //==============================================================================
@@ -1713,23 +1817,49 @@ void SettingsPanel::setupAboutPage()
         };
 }
 
+
 //==============================================================================
-// USER GUIDE
+// SETUP USER GUIDE
 //==============================================================================
 //
-// This is the complete built-in OFFOR Vocal Pro guide.
+// The User Guide uses a JUCE Viewport containing a tall Label.
 //
-// The text is deliberately written for a producer rather than as a
-// programming/manual document. It explains what each section does,
-// how to approach the plugin and how to build a vocal chain.
+// IMPORTANT:
+// The Viewport MUST be added to SettingsPanel.
+// Without addAndMakeVisible(), setVisible(true) alone is not enough.
+//
+// Mouse behaviour:
+//
+//     Mouse outside:
+//         Automatic slow scrolling.
+//
+//     Mouse enters:
+//         Automatic scrolling pauses.
+//
+//     Mouse wheel:
+//         Fast manual scrolling.
+//
+//     Mouse leaves:
+//         Automatic scrolling resumes after a short delay.
 //
 //==============================================================================
 
+// ============================================================
+// USER GUIDE SETUP
+// ============================================================
+
 void SettingsPanel::setupUserGuide()
 {
-    //==========================================================================
-    // VIEWPORT
-    //==========================================================================
+    // --------------------------------------------------------
+    // ADD VIEWPORT TO SETTINGS PANEL
+    // IMPORTANT: The viewport must be visible.
+    // --------------------------------------------------------
+
+    addAndMakeVisible(userGuideViewport);
+
+    // --------------------------------------------------------
+    // VIEWPORT SETTINGS
+    // --------------------------------------------------------
 
     userGuideViewport.setScrollBarsShown(
         false,
@@ -1738,22 +1868,23 @@ void SettingsPanel::setupUserGuide()
     userGuideViewport.setScrollOnDragEnabled(
         true);
 
-    userGuideViewport.setViewedComponent(
-        &userGuideContent,
-        false);
-
     userGuideViewport.setWantsKeyboardFocus(
         false);
 
     userGuideViewport.setMouseCursor(
         juce::MouseCursor::NormalCursor);
 
-    addAndMakeVisible(
-        userGuideViewport);
+    // --------------------------------------------------------
+    // CREATE THE CONTENT INSIDE THE VIEWPORT
+    // --------------------------------------------------------
 
-    //==========================================================================
-    // GUIDE CONTENT
-    //==========================================================================
+    userGuideViewport.setViewedComponent(
+        &userGuideContent,
+        false);
+
+    // --------------------------------------------------------
+    // GUIDE TEXT
+    // --------------------------------------------------------
 
     userGuideContent.setText(
         getUserGuideText(),
@@ -1769,36 +1900,240 @@ void SettingsPanel::setupUserGuide()
     userGuideContent.setJustificationType(
         juce::Justification::topLeft);
 
+    // --------------------------------------------------------
+    // TEXT PADDING
+    // --------------------------------------------------------
+
     userGuideContent.setBorderSize(
         juce::BorderSize<int>(
-            18,
-            22,
-            30,
-            22));
+            18,     // top
+            22,     // left
+            30,     // bottom
+            22));   // right
+
+    // --------------------------------------------------------
+    // IMPORTANT:
+    // The LABEL does NOT capture mouse events.
+    // This allows the VIEWPORT to receive the mouse wheel.
+    // --------------------------------------------------------
 
     userGuideContent.setInterceptsMouseClicks(
         false,
         false);
 
+    // --------------------------------------------------------
+    // TRANSPARENT BACKGROUND
+    // --------------------------------------------------------
+
     userGuideContent.setColour(
         juce::Label::backgroundColourId,
         juce::Colours::transparentBlack);
 
-    //==========================================================================
-    // MOUSE LISTENER
-    //==========================================================================
-    //
-    // Listening to the viewport allows us to pause automatic scrolling when
-    // the user moves the mouse into the guide.
-    //
-    //==========================================================================
+    // --------------------------------------------------------
+    // MAKE SURE THE CONTENT IS VISIBLE
+    // --------------------------------------------------------
 
-    userGuideViewport.addMouseListener(
-        this,
-        true);
+    userGuideContent.setVisible(true);
+
+    // --------------------------------------------------------
+    // MOUSE ENTER
+    // Stop automatic scrolling while mouse is inside guide.
+    // --------------------------------------------------------
+
+    userGuideViewport.onMouseEnterGuide =
+        [this]()
+        {
+            userGuideMouseOver = true;
+            userGuideIdleCounter = 0;
+        };
+
+    // --------------------------------------------------------
+    // MOUSE EXIT
+    // Automatic scrolling will resume after the delay.
+    // --------------------------------------------------------
+
+    userGuideViewport.onMouseExitGuide =
+        [this]()
+        {
+            userGuideMouseOver = false;
+            userGuideIdleCounter = 0;
+        };
+
+    // --------------------------------------------------------
+    // MOUSE WHEEL
+    // Fast manual scrolling.
+    // --------------------------------------------------------
+
+    userGuideViewport.onMouseWheelGuide =
+        [this](
+            const juce::MouseEvent& event,
+            const juce::MouseWheelDetails& wheel)
+        {
+            juce::ignoreUnused(event);
+
+            if (currentPage != Page::userGuide)
+                return;
+
+            const auto* content =
+                userGuideViewport.getViewedComponent();
+
+            if (content == nullptr)
+                return;
+
+            const int viewportHeight =
+                userGuideViewport.getHeight();
+
+            const int contentHeight =
+                content->getHeight();
+
+            const int maxScroll =
+                juce::jmax(
+                    0,
+                    contentHeight - viewportHeight);
+
+            if (maxScroll <= 0)
+                return;
+
+            // Mouse is interacting with the guide.
+            userGuideMouseOver = true;
+            userGuideIdleCounter = 0;
+
+            // ------------------------------------------------
+            // WHEEL SPEED
+            // Increase this number for faster scrolling.
+            // ------------------------------------------------
+
+            constexpr float mouseWheelSpeed = 420.0f;
+
+            float delta =
+                wheel.deltaY * mouseWheelSpeed;
+
+            // Some touchpads use horizontal delta.
+            if (std::abs(delta) < 0.01f)
+            {
+                delta =
+                    wheel.deltaX * mouseWheelSpeed;
+            }
+
+            const int currentPosition =
+                userGuideViewport.getViewPositionY();
+
+            const int newPosition =
+                juce::jlimit(
+                    0,
+                    maxScroll,
+                    currentPosition
+                        - static_cast<int>(delta));
+
+            userGuideScrollPosition =
+                static_cast<float>(
+                    newPosition);
+
+            userGuideViewport.setViewPosition(
+                0,
+                newPosition);
+        };
+
+    // --------------------------------------------------------
+    // INITIAL SCROLL STATE
+    // --------------------------------------------------------
+
+    userGuideMouseOver = false;
+    userGuideIdleCounter = 0;
+    userGuideScrollPosition = 0.0f;
+
+    // --------------------------------------------------------
+    // FORCE INITIAL LAYOUT
+    // resized() will also call this later when the panel
+    // receives its real size.
+    // --------------------------------------------------------
+
+    updateUserGuideLayout();
 
     resetUserGuideScroll();
 }
+
+// ============================================================
+// USER GUIDE LAYOUT
+// ============================================================
+
+void SettingsPanel::updateUserGuideLayout()
+{
+    const int viewportWidth =
+        userGuideViewport.getWidth();
+
+    const int viewportHeight =
+        userGuideViewport.getHeight();
+
+    // The panel may not have been sized yet.
+    if (viewportWidth <= 0 ||
+        viewportHeight <= 0)
+    {
+        return;
+    }
+
+    // --------------------------------------------------------
+    // CONTENT WIDTH
+    // Make the label exactly the width of the viewport.
+    // --------------------------------------------------------
+
+    const int contentWidth =
+        juce::jmax(
+            100,
+            viewportWidth);
+
+    // --------------------------------------------------------
+    // CONTENT HEIGHT
+    //
+    // This is deliberately much taller than the viewport so
+    // the entire guide can scroll.
+    // --------------------------------------------------------
+
+    const int contentHeight = 6000;
+
+    userGuideContent.setBounds(
+        0,
+        0,
+        contentWidth,
+        contentHeight);
+
+    // --------------------------------------------------------
+    // MAKE ABSOLUTELY SURE THE CONTENT IS VISIBLE.
+    // --------------------------------------------------------
+
+    userGuideContent.setVisible(true);
+
+    userGuideContent.toBack();
+
+    // --------------------------------------------------------
+    // LIMIT CURRENT SCROLL POSITION.
+    // --------------------------------------------------------
+
+    const int maxScroll =
+        juce::jmax(
+            0,
+            contentHeight - viewportHeight);
+
+    const int currentPosition =
+        juce::jlimit(
+            0,
+            maxScroll,
+            userGuideViewport.getViewPositionY());
+
+    userGuideScrollPosition =
+        static_cast<float>(
+            currentPosition);
+
+    // --------------------------------------------------------
+    // APPLY SCROLL POSITION.
+    // --------------------------------------------------------
+
+    userGuideViewport.setViewPosition(
+        0,
+        currentPosition);
+}
+
+
 
 //==============================================================================
 // USER GUIDE CONTENT
@@ -2177,76 +2512,55 @@ void SettingsPanel::resetUserGuideScroll()
     }
 }
 
-//==============================================================================
-// UPDATE USER GUIDE LAYOUT
-//==============================================================================
-
-void SettingsPanel::updateUserGuideLayout()
-{
-    const int viewportWidth =
-        userGuideViewport.getWidth();
-
-    const int viewportHeight =
-        userGuideViewport.getHeight();
-
-    if (viewportWidth <= 0 ||
-        viewportHeight <= 0)
-        return;
-
-    //==========================================================================
-    // Calculate a deliberately tall content area.
-    //
-    // The Label wraps its text according to this width.
-    //
-    // The extra height allows the complete guide to scroll vertically.
-    //==========================================================================
-
-    const int contentWidth =
-        juce::jmax(
-            100,
-            viewportWidth);
-
-    const int contentHeight =
-        4300;
-
-    userGuideContent.setBounds(
-        0,
-        0,
-        contentWidth,
-        contentHeight);
-
-    juce::ignoreUnused(
-        viewportHeight);
-}
 
 //==============================================================================
-// TIMER
+// TIMER CALLBACK
 //==============================================================================
 //
-// Automatic guide scrolling.
+// User Guide automatic scrolling.
 //
-// The scroll is intentionally slow:
+// Behaviour:
 //
-//      30 timer updates / second
-//      0.12 pixels / update
+//     - Guide is on screen
+//         -> slow automatic scrolling.
 //
-// This produces approximately 3.6 pixels per second.
+//     - Mouse is over guide
+//         -> automatic scrolling stops.
 //
-// The user can interrupt it by moving the mouse into the guide.
+//     - User moves mouse wheel
+//         -> manual scrolling is handled by UserGuideViewport.
+//
+//     - Mouse leaves guide
+//         -> automatic scrolling resumes after a short delay.
+//
+//     - Bottom is reached
+//         -> scrolling returns to the top and continues.
 //
 //==============================================================================
 
 void SettingsPanel::timerCallback()
 {
+    //==========================================================================
+    // ONLY RUN FOR USER GUIDE
+    //==========================================================================
+
     if (currentPage != Page::userGuide)
         return;
 
-    if (! userGuideViewport.isVisible())
+    if (!userGuideViewport.isVisible())
         return;
 
+
     //==========================================================================
-    // Pause while the user is reading/interacting.
+    // MOUSE IS OVER GUIDE
     //==========================================================================
+
+    //
+    // While the mouse is inside the guide, do absolutely nothing.
+    //
+    // This prevents the automatic scrolling from fighting with the user's
+    // mouse wheel or drag scrolling.
+    //
 
     if (userGuideMouseOver)
     {
@@ -2254,18 +2568,27 @@ void SettingsPanel::timerCallback()
         return;
     }
 
+
     //==========================================================================
-    // Small delay before scrolling resumes.
+    // WAIT BEFORE RESUMING
     //==========================================================================
 
-    if (userGuideIdleCounter < 45)
+    //
+    // Timer runs at 30 Hz.
+    //
+    // 45 ticks / 30 Hz = 1.5 seconds.
+    //
+    constexpr int resumeDelayTicks = 45;
+
+    if (userGuideIdleCounter < resumeDelayTicks)
     {
         ++userGuideIdleCounter;
         return;
     }
 
+
     //==========================================================================
-    // Calculate maximum scroll.
+    // GET GUIDE CONTENT
     //==========================================================================
 
     const auto* content =
@@ -2274,20 +2597,60 @@ void SettingsPanel::timerCallback()
     if (content == nullptr)
         return;
 
+
+    //==========================================================================
+    // CALCULATE MAXIMUM SCROLL
+    //==========================================================================
+
+    const int viewportHeight =
+        userGuideViewport.getHeight();
+
+    const int contentHeight =
+        content->getHeight();
+
     const int maxScroll =
         juce::jmax(
             0,
-            content->getHeight()
-            - userGuideViewport.getHeight());
+            contentHeight
+                - viewportHeight);
 
     if (maxScroll <= 0)
         return;
 
+
     //==========================================================================
-    // AUTO SCROLL
+    // GET CURRENT POSITION
     //==========================================================================
 
-    userGuideScrollPosition += 0.12f;
+    const int actualPosition =
+        userGuideViewport.getViewPositionY();
+
+
+    userGuideScrollPosition =
+        static_cast<float>(
+            actualPosition);
+
+
+    //==========================================================================
+    // AUTOMATIC SCROLL SPEED
+    //==========================================================================
+
+    //
+    // Timer = 30 Hz
+    //
+    // 0.35 pixels per tick
+    // = approximately 10.5 pixels per second.
+    //
+    // This gives a slow, readable movement.
+    //
+
+    constexpr float automaticScrollSpeed =
+        0.35f;
+
+
+    userGuideScrollPosition +=
+        automaticScrollSpeed;
+
 
     //==========================================================================
     // LOOP BACK TO TOP
@@ -2299,11 +2662,17 @@ void SettingsPanel::timerCallback()
         userGuideScrollPosition = 0.0f;
     }
 
+
+    //==========================================================================
+    // APPLY SCROLL
+    //==========================================================================
+
     userGuideViewport.setViewPosition(
         0,
         static_cast<int>(
             userGuideScrollPosition));
 }
+
 
 //==============================================================================
 // SELECT PAGE
@@ -2344,7 +2713,7 @@ void SettingsPanel::selectPage(
     {
         resetUserGuideScroll();
 
-        userGuideIdleCounter = 45;
+        userGuideIdleCounter = 0;
     }
 
     updatePageVisibility();
@@ -2457,13 +2826,18 @@ void SettingsPanel::updatePageVisibility()
     websiteButton.setVisible(about);
     supportButton.setVisible(about);
 
-    //==========================================================================
-    // USER GUIDE
-    //==========================================================================
+    // ============================================================
+    // USER GUIDE VISIBILITY
+    // ============================================================
 
-    userGuideTitle.setVisible(userGuide);
-    userGuideDescription.setVisible(userGuide);
-    userGuideViewport.setVisible(userGuide);
+    userGuideTitle.setVisible(
+        userGuide);
+
+    userGuideDescription.setVisible(
+        userGuide);
+
+    userGuideViewport.setVisible(
+        userGuide);
 
 
     //==========================================================================
@@ -2873,11 +3247,12 @@ void SettingsPanel::resized()
         30,
         30);
 
+    
     //==========================================================================
     // TOP NAVIGATION
     //==========================================================================
     //
-    // There are now SEVEN tabs:
+    // Seven tabs:
     //
     // GENERAL
     // AUDIO
@@ -2885,8 +3260,10 @@ void SettingsPanel::resized()
     // PERFORMANCE
     // ABOUT
     // USER GUIDE
+    // FEEDBACK
     //
-    // The tabs automatically share the available width.
+    // All seven tabs receive exactly the same width.
+    // This prevents overlapping or uneven tab areas.
     //
     //==========================================================================
 
@@ -2906,8 +3283,15 @@ void SettingsPanel::resized()
         navigationRight -
         navigationLeft;
 
+    const int numberOfTabs =
+        7;
+
     const int tabWidth =
-        navigationWidth / 7;
+        navigationWidth / numberOfTabs;
+
+    //--------------------------------------------------------------------------
+    // GENERAL
+    //--------------------------------------------------------------------------
 
     generalTab.setBounds(
         navigationLeft + tabWidth * 0,
@@ -2915,11 +3299,19 @@ void SettingsPanel::resized()
         tabWidth,
         navigationHeight);
 
+    //--------------------------------------------------------------------------
+    // AUDIO
+    //--------------------------------------------------------------------------
+
     audioTab.setBounds(
         navigationLeft + tabWidth * 1,
         navigationY,
         tabWidth,
         navigationHeight);
+
+    //--------------------------------------------------------------------------
+    // DISPLAY
+    //--------------------------------------------------------------------------
 
     displayTab.setBounds(
         navigationLeft + tabWidth * 2,
@@ -2927,11 +3319,19 @@ void SettingsPanel::resized()
         tabWidth,
         navigationHeight);
 
+    //--------------------------------------------------------------------------
+    // PERFORMANCE
+    //--------------------------------------------------------------------------
+
     performanceTab.setBounds(
         navigationLeft + tabWidth * 3,
         navigationY,
         tabWidth,
         navigationHeight);
+
+    //--------------------------------------------------------------------------
+    // ABOUT
+    //--------------------------------------------------------------------------
 
     aboutTab.setBounds(
         navigationLeft + tabWidth * 4,
@@ -2939,16 +3339,33 @@ void SettingsPanel::resized()
         tabWidth,
         navigationHeight);
 
+    //--------------------------------------------------------------------------
+    // USER GUIDE
+    //--------------------------------------------------------------------------
+
     userGuideTab.setBounds(
         navigationLeft + tabWidth * 5,
         navigationY,
-        navigationWidth - (tabWidth * 5),
+        tabWidth,
         navigationHeight);
-        
+
+    //--------------------------------------------------------------------------
+    // FEEDBACK
+    //--------------------------------------------------------------------------
+    //
+    // Give Feedback now occupies exactly the final seventh slot.
+    //
+    //--------------------------------------------------------------------------
+
     feedbackTab.setBounds(
         navigationLeft + tabWidth * 6,
         navigationY,
-        navigationWidth - (tabWidth * 6),
+
+        // Use the remaining pixels so there is no 1–6 pixel gap
+        // caused by integer division.
+        navigationRight -
+            (navigationLeft + tabWidth * 6),
+
         navigationHeight);
 
     //==========================================================================
@@ -3233,57 +3650,70 @@ void SettingsPanel::resized()
     // ABOUT
     //==========================================================================
 
+    aboutTitle.setBounds(
+        left,
+        145,
+        300,
+        30);
+
+    aboutDescription.setBounds(
+        left,
+        176,
+        right - left,
+        22);
+
     productNameLabel.setBounds(
         left,
-        170,
+        215,
         right - left,
         35);
 
     versionLabel.setBounds(
         left,
-        208,
+        253,
         right - left,
         20);
 
     companyLabel.setBounds(
         left,
-        245,
+        285,
         right - left,
         24);
 
     descriptionLabel.setBounds(
         left,
-        275,
+        315,
         right - left,
         24);
 
     licenseTitleLabel.setBounds(
         left,
-        390,
+        380,
         250,
         20);
 
     licenseStatusLabel.setBounds(
         left,
-        425,
+        410,
         250,
         25);
 
     websiteButton.setBounds(
         left,
-        480,
+        460,
         155,
         38);
 
     supportButton.setBounds(
         left + 170,
-        480,
+        460,
         120,
         38);
 
-    //==========================================================================
+
+    // ============================================================
     // USER GUIDE
-    //==========================================================================
+    // ============================================================
 
     userGuideTitle.setBounds(
         left,
@@ -3297,11 +3727,21 @@ void SettingsPanel::resized()
         right - left,
         22);
 
+    // ------------------------------------------------------------
+    // GUIDE VIEWPORT
+    // ------------------------------------------------------------
+
     userGuideViewport.setBounds(
         32,
         205,
         width - 64,
         height - 225);
+
+    // ------------------------------------------------------------
+    // UPDATE CONTENT SIZE
+    // ------------------------------------------------------------
+
+    updateUserGuideLayout();
 
 
 
@@ -3323,7 +3763,6 @@ void SettingsPanel::resized()
             height - 175);
     }
 
-    updateUserGuideLayout();
 
 
 
